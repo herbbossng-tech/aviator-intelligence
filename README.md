@@ -11,29 +11,50 @@ A local-first web dashboard for **researching** the crash-style game Aviator. It
 
 ## Current status
 
-This is **foundation pass 1**. See [docs/PROJECT_SCOPE.md](docs/PROJECT_SCOPE.md) for the full implemented / planned / excluded breakdown.
+Foundation pass 1 and **pass 2 (historical round data manager)** are implemented. See [docs/PROJECT_SCOPE.md](docs/PROJECT_SCOPE.md) for the full implemented / planned / excluded breakdown.
 
-| Area                                                                   | Status                                                                                           |
-| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| npm workspace (shared / server / web), strict TypeScript               | Done                                                                                             |
-| SQLite database, versioned migrations, initial domain schema           | Done                                                                                             |
-| Validated two-leg strategy config and simulation settings (types only) | Done                                                                                             |
-| Leg settlement accounting rule (`settleLeg`), unit-tested              | Done                                                                                             |
-| Local read-only API: health, meta, overview, rounds                    | Done                                                                                             |
-| Dashboard shell with honest empty states                               | Done                                                                                             |
-| Tests (Vitest + React Testing Library), ESLint, Prettier, CI workflow  | Done                                                                                             |
-| Round import and manual entry                                          | Planned                                                                                          |
-| Simulation engine, backtesting, ledger writes                          | Planned                                                                                          |
-| Distribution analysis, charts (Recharts), uncertainty reporting        | Planned                                                                                          |
-| Playwright browser tests of the dashboard                              | Planned                                                                                          |
-| Live observation                                                       | Out of scope until reviewed ([docs/LIVE_OBSERVATION_REVIEW.md](docs/LIVE_OBSERVATION_REVIEW.md)) |
-| Real-money execution / betting automation                              | Excluded                                                                                         |
+| Area                                                                                                           | Status                                                                                           |
+| -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| npm workspace (shared / server / web), strict TypeScript                                                       | Done                                                                                             |
+| SQLite database, versioned migrations, initial domain schema                                                   | Done                                                                                             |
+| Validated two-leg strategy config and simulation settings (types only)                                         | Done                                                                                             |
+| Leg settlement accounting rule (`settleLeg`), unit-tested                                                      | Done                                                                                             |
+| Local API: health, meta, overview, rounds (read + manual entry), imports                                       | Done                                                                                             |
+| Dashboard shell with honest empty states                                                                       | Done                                                                                             |
+| Tests (Vitest + React Testing Library), ESLint, Prettier, CI workflow                                          | Done                                                                                             |
+| Round data manager: manual entry, CSV/JSON import with preview, duplicate detection, import history, filtering | Done (pass 2)                                                                                    |
+| Simulation engine, backtesting, ledger writes                                                                  | Planned                                                                                          |
+| Distribution analysis, charts (Recharts), uncertainty reporting                                                | Planned                                                                                          |
+| Playwright browser tests of the dashboard                                                                      | Planned                                                                                          |
+| Live observation                                                                                               | Out of scope until reviewed ([docs/LIVE_OBSERVATION_REVIEW.md](docs/LIVE_OBSERVATION_REVIEW.md)) |
+| Real-money execution / betting automation                                                                      | Excluded                                                                                         |
+
+## Round data
+
+Rounds can be added in two ways:
+
+- **Manual entry** (Round data → Add a round)
+- **CSV or JSON import** (Round data → Import file)
+
+Both use the same validation:
+
+- Multipliers are stored exactly, with at most two decimals and a minimum of 1.00x.
+- Event times must include a time zone.
+- Every round carries the source label you declare.
+
+Imports are validated and previewed before anything is stored. They are committed in one transaction and recorded in the import history.
+
+Rounds with a source round ID are never stored twice for the same source, and existing rounds are never overwritten. Rounds without IDs are never silently deduplicated.
+
+The full contract covers formats, limits, error codes and duplicate rules: **[docs/DATA_IMPORT.md](docs/DATA_IMPORT.md)**. Synthetic example files are in [docs/examples/](docs/examples/).
+
+No round data ships with the application, and none is generated.
 
 ## Technology
 
 - **Web:** React 19, Vite 8, TypeScript, Tailwind CSS 4, React Router 7
 - **API:** Node.js 22, Express 5, TypeScript
-- **Data:** SQLite via `better-sqlite3`, Zod 4 for runtime validation
+- **Data:** SQLite via `better-sqlite3`, Zod 4 for runtime validation, `csv-parse` for CSV import
 - **Quality:** Vitest 5, React Testing Library (jsdom), ESLint 10 + typescript-eslint, Prettier
 - **Package manager:** npm workspaces with a committed `package-lock.json`
 
@@ -107,10 +128,10 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the schema and the numeric 
 ## Architecture
 
 ```
-packages/shared   Domain types + Zod schemas (money, multipliers, legs, simulation settings, API contracts)
-apps/server       Express API, config validation, SQLite connection, migrations, repositories
+packages/shared   Domain types + Zod schemas (money, multipliers, round records, imports, legs, simulation settings, API contracts)
+apps/server       Express API, config validation, SQLite connection, migrations, repositories, CSV/JSON import pipeline
 apps/web          React dashboard (pages, components, typed API client)
-docs/             Scope, architecture, live-observation review checklist
+docs/             Scope, architecture, data import contract, live-observation review checklist, synthetic examples
 ```
 
 ## Data sources and provenance
@@ -125,6 +146,10 @@ docs/             Scope, architecture, live-observation review checklist
 - Crash-game rounds are designed to be independent. Descriptive statistics of past rounds are not evidence of a predictive edge, and a profitable backtest is not evidence of future profit.
 - The leg settlement rule (cashout succeeds when crash multiplier ≥ target) is a modelling assumption still to be confirmed against the platform's published rules.
 - The API has no authentication and is meant for a single local user on loopback only.
+- `npm run dev` may show "Local API unreachable" for a few seconds, because the dashboard can start before the API. Reload once the API has started.
+- Import previews are held in API memory: they expire after 15 minutes and are lost when the API restarts.
+- If an import fails and recording the failure in history also fails, the attempt appears only in the server log, not in import history.
+- Rounds without a source round ID cannot be reliably deduplicated. Identical files are blocked by content hash, but a re-saved copy with different bytes can be imported twice. See [docs/DATA_IMPORT.md](docs/DATA_IMPORT.md).
 
 ## License
 

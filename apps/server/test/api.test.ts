@@ -93,13 +93,23 @@ describe('error handling', () => {
     expect(apiErrorSchema.parse(await res.json()).error.code).toBe('not_found');
   });
 
-  it('exposes no write endpoints', async () => {
-    const res = await fetch(`${server.baseUrl}/api/rounds`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: '{}',
-    });
-    expect(res.status).toBe(404);
+  it('exposes only the documented write endpoints', async () => {
+    const post = (path: string) =>
+      fetch(`${server.baseUrl}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      });
+    // Only POST /api/rounds, /api/imports/preview and /api/imports accept writes.
+    for (const path of [
+      '/api/overview',
+      '/api/strategies',
+      '/api/simulations',
+      '/api/meta',
+      '/api/sql',
+    ]) {
+      expect((await post(path)).status).toBe(404);
+    }
   });
 
   it('returns a generic 500 without leaking internals', async () => {

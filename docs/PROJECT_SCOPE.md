@@ -36,11 +36,31 @@ Aviator Intelligence is a local-first research and simulation dashboard for the 
   - honest empty and error states
   - a visible research/simulation-mode badge
 
+## Implemented in pass 2: historical round data manager
+
+- **One canonical round record** (`multiplier`, `sourceRoundId`, `eventAt`) and a single shared validation path used by CSV import, JSON import, manual entry (server) and the manual-entry form (client).
+- **CSV and JSON import:**
+  - fixed size and record limits
+  - a preview stage that writes nothing
+  - row-level errors with codes
+  - single-use, expiring preview IDs, so confirmation never trusts client-sent records
+- **Duplicate detection:**
+  - (source, `sourceRoundId`) identity, enforced by a UNIQUE constraint
+  - an in-file repeat and conflict policy
+  - existing rounds are never overwritten
+  - a content-hash guard against importing the same file twice
+  - warnings only (never silent deduplication) for rounds without IDs
+- **Transactional confirm:** the import row, its rounds and its counters commit together or not at all. Failed attempts are recorded as `failed` with zero records stored.
+- **Import history** with accurate counters, enforced by database triggers.
+- **Manual entry** with field-level errors, duplicate handling and protection against double submission.
+- **Round browser** with filtering (source, ID search, multiplier range, import), sorting and pagination.
+- **Docs and examples:** [DATA_IMPORT.md](DATA_IMPORT.md) and synthetic example files in [examples/](examples/).
+
 ## Planned for later phases
 
 Each phase needs separate approval.
 
-- **Data:** CSV/JSON round import with per-row validation and rejection reporting; manual round entry; import audit trail.
+- **Data:** editing or deleting stored rounds and imports (currently there is no delete or undo); exporting rounds.
 - **Analysis:** multiplier distribution analysis (empirical CDF, survival function P(M ≥ t), confidence intervals); Recharts visualisations.
 - **Strategy lab:** create, edit and store two-leg strategies (config validated by the shared schema).
 - **Simulation engine:** reproducible backtests over a selected dataset, persistent virtual ledger, virtual risk stops (stop-loss, take-profit, max drawdown, max rounds), and seeded resampling (e.g. bootstrap) for uncertainty.

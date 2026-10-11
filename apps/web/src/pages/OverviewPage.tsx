@@ -15,7 +15,7 @@ const RECENT_ROUNDS_LIMIT = 10;
 
 export function OverviewPage() {
   const overview = useApi((signal) => api.overview(signal));
-  const recent = useApi((signal) => api.rounds(RECENT_ROUNDS_LIMIT, 0, signal));
+  const recent = useApi((signal) => api.rounds({ limit: RECENT_ROUNDS_LIMIT, offset: 0 }, signal));
 
   return (
     <>
@@ -33,7 +33,7 @@ export function OverviewPage() {
       <div className="mt-6 grid gap-6 xl:grid-cols-[2fr_1fr]">
         <Panel
           title="Recent rounds"
-          subtitle={`Latest ${RECENT_ROUNDS_LIMIT} recorded rounds, newest first`}
+          subtitle={`Latest ${RECENT_ROUNDS_LIMIT} recorded rounds, most recently stored first`}
           actions={
             <Link to="/rounds" className="text-xs text-sky-400 hover:text-sky-300">
               View all
@@ -122,7 +122,7 @@ function SummaryCards({ data }: { data: OverviewResponse }) {
         detail={
           imports.total === 0
             ? 'No imports yet'
-            : `${formatCount(imports.total)} import(s) · ${formatCount(imports.recordsAccepted)} accepted · ${formatCount(imports.failed)} failed`
+            : `${formatCount(imports.total)} import(s) · ${formatCount(imports.recordsAccepted)} stored · ${formatCount(imports.recordsDuplicate)} duplicate(s) skipped · ${formatCount(imports.failed)} failed`
         }
       />
     </div>
@@ -135,8 +135,15 @@ function RecentRounds({ state }: { state: ReturnType<typeof useApi<RoundsListRes
   if (state.data.items.length === 0) {
     return (
       <EmptyState title="No rounds recorded yet">
-        Round history will appear here once it is imported from a documented, permitted source or
-        entered manually. Import and manual entry are planned for the next phase.
+        Round history appears here once you{' '}
+        <Link className="text-sky-400" to="/rounds/new">
+          enter a round manually
+        </Link>{' '}
+        or{' '}
+        <Link className="text-sky-400" to="/rounds/import">
+          import a file
+        </Link>{' '}
+        from a documented, permitted source.
       </EmptyState>
     );
   }

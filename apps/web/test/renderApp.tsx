@@ -6,7 +6,7 @@ import { App } from '../src/App';
 export const EMPTY_OVERVIEW = {
   currency: 'NGN',
   rounds: { total: 0, distinctSources: 0, latestObservedAt: null },
-  imports: { total: 0, failed: 0, recordsAccepted: 0, recordsRejected: 0 },
+  imports: { total: 0, failed: 0, recordsAccepted: 0, recordsRejected: 0, recordsDuplicate: 0 },
   strategies: { total: 0 },
   simulations: { total: 0, completed: 0 },
   latestVirtualBankroll: null,

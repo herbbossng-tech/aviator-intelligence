@@ -1,6 +1,7 @@
 import type { ErrorRequestHandler, RequestHandler } from 'express';
 import { ZodError } from 'zod';
-import type { ApiError } from '@aviator/shared';
+import type { ApiError, ValidationDetail } from '@aviator/shared';
+import { IMPORT_FILE_ERROR_STATUS, ImportFileError } from '../imports/errors.js';
 
 export class HttpError extends Error {
   constructor(
@@ -12,6 +13,10 @@ export class HttpError extends Error {
     super(message);
     this.name = 'HttpError';
   }
+}
+
+export function validationError(details: ValidationDetail[]): HttpError {
+  return new HttpError(400, 'validation_error', 'Request validation failed', details);
 }
 
 function body(code: string, message: string, details?: unknown): ApiError {
@@ -37,25 +42,36 @@ export function createErrorHandler(
       res.status(err.status).json(body(err.code, err.message, err.details));
       return;
     }
-    if (err instanceof ZodError) {
-      res.status(400).json(
-        body(
-          'validation_error',
-          'Request validation failed',
-          err.issues.map((i) => ({ path: i.path.join('.'), message: i.message })),
-        ),
-      );
+    if (err instanceof ImportFileError) {
+      res.status(IMPORT_FILE_ERROR_STATUS[err.code]).json(body(err.code, err.message, err.details));
       return;
     }
-    // body-parser errors (malformed JSON, payload too large) carry a numeric status.
+    if (err instanceof ZodError) {
+      const details: ValidationDetail[] = err.issues.slice(0, 50).map((i) => ({
+        path: i.path.join('.'),
+        message: i.message,
+      }));
+      res.status(400).json(body('validation_error', 'Request validation failed', details));
+      return;
+    }
+    // body-parser errors carry a numeric status and a type.
     if (
       typeof err === 'object' &&
       err !== null &&
       'status' in err &&
       typeof err.status === 'number'
     ) {
+      const type = 'type' in err ? err.type : undefined;
+      if (type === 'entity.too.large') {
+        res.status(413).json(body('payload_too_large', 'Request body is too large'));
+        return;
+      }
+      if (type === 'entity.parse.failed') {
+        res.status(400).json(body('invalid_request_json', 'Request body is not valid JSON'));
+        return;
+      }
       const status = err.status >= 400 && err.status < 500 ? err.status : 400;
-      res.status(status).json(body('bad_request', 'Malformed or oversized request body'));
+      res.status(status).json(body('bad_request', 'Malformed request'));
       return;
     }
     log('Unhandled API error', err);
