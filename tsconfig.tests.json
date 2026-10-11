@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "customConditions": ["source"],
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": ["packages/shared/src/**/*.test.ts", "apps/server/test", "vitest.config.ts"]
+}

@@ -147,3 +147,60 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# ---------------------------------------------------------------------------
+# Aviator Intelligence project-specific rules
+# ---------------------------------------------------------------------------
+
+# Local SQLite databases, sidecar files and backups (never commit round/ledger data)
+/data/
+*.sqlite
+*.sqlite3
+*.db
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+*.db-journal
+*.db-wal
+*.db-shm
+*.bak
+backups/
+
+# Raw local data captures and imports (potentially large or sensitive)
+captures/
+raw-data/
+imports/raw/
+*.har
+
+# Browser profiles, session and storage state (must never be committed)
+storageState.json
+*storage-state*.json
+*.storageState.json
+.auth/
+browser-profile/
+user-data-dir/
+playwright/.auth/
+cookies*.json
+
+# Playwright test output
+test-results/
+playwright-report/
+blob-report/
+
+# Python tooling (if ever introduced)
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Temporary files and editor/OS noise
+tmp/
+.tmp/
+*.tmp
+*.swp
+.DS_Store
+Thumbs.db
