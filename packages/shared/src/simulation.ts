@@ -9,8 +9,8 @@ import { MULTIPLIER_SCALE, roundMultiplierX100Schema } from './multiplier.js';
 import type { LegConfig } from './legs.js';
 
 /**
- * Simulation configuration types. The simulation ENGINE is not implemented yet; these
- * schemas define and validate what a future run will accept, and how runs are stored.
+ * Simulation configuration types, used by the backtest engine in backtest.ts. These
+ * schemas define and validate what a run accepts and how runs are stored.
  * All risk settings apply to VIRTUAL bankrolls only and control nothing outside this app.
  */
 export const simulationRiskSettingsSchema = z

@@ -6,3 +6,4 @@ export * from './api.js';
 export * from './rounds.js';
 export * from './imports.js';
 export * from './analytics.js';
+export * from './backtest.js';
