@@ -9,6 +9,9 @@
  *   carry a summary, a stop reason and a dataset hash. Table CHECKs cannot be added to an
  *   existing table in SQLite without rebuilding it.
  * - Ledger rows may only be attached to a completed run, so a failed run never has a ledger.
+ * - A stored ledger is immutable, and a completed run cannot later change status (which
+ *   could otherwise leave a ledger behind a run that no longer claims to be completed).
+ *   Deleting a run still cascades to its ledger.
  */
 export const sql = `
 ALTER TABLE simulation_runs ADD COLUMN summary_json TEXT
@@ -49,5 +52,18 @@ BEFORE INSERT ON ledger_entries
 WHEN (SELECT status FROM simulation_runs WHERE id = NEW.simulation_run_id) IS NOT 'completed'
 BEGIN
   SELECT RAISE(ABORT, 'ledger entries may only belong to a completed simulation run');
+END;
+
+CREATE TRIGGER ledger_entries_immutable
+BEFORE UPDATE ON ledger_entries
+BEGIN
+  SELECT RAISE(ABORT, 'ledger entries are immutable');
+END;
+
+CREATE TRIGGER simulation_runs_completed_is_final
+BEFORE UPDATE OF status ON simulation_runs
+WHEN OLD.status = 'completed' AND NEW.status <> 'completed'
+BEGIN
+  SELECT RAISE(ABORT, 'a completed simulation run cannot change status');
 END;
 `;

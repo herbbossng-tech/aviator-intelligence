@@ -18,6 +18,15 @@ import { z } from 'zod';
 import type { Db } from '../connection.js';
 import { roundFilterSql, type RoundFilter } from './rounds.js';
 
+/** The only event_at form the app writes: new Date(...).toISOString(). */
+const CANONICAL_EVENT_AT_GLOB =
+  '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z';
+
+/** A replayed round plus the identity fields that go into the dataset fingerprint. */
+export interface ReplayRound extends BacktestRound {
+  sourceRoundId: string | null;
+}
+
 function toFilter(dataset: BacktestDataset): RoundFilter {
   return {
     source: dataset.source,
@@ -60,6 +69,14 @@ export function getDatasetReport(
       )
       .get(...dated.params) as { n: number }
   ).n;
+  const nonCanonical = (
+    db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM rounds WHERE ${dated.where} AND event_at IS NOT NULL
+            AND NOT (length(event_at) = 24 AND event_at GLOB '${CANONICAL_EVENT_AT_GLOB}')`,
+      )
+      .get(...dated.params) as { n: number }
+  ).n;
   const undatedSql = roundFilterSql({ source: filter.source, importId: filter.importId });
   const undated = (
     db
@@ -79,6 +96,8 @@ export function getDatasetReport(
       undated > 0
         ? 'None of the matching rounds has an event time, so they cannot be replayed in order.'
         : 'No eligible rounds match this selection.';
+  } else if (nonCanonical > 0) {
+    problem = `${nonCanonical} eligible round(s) have an event time that is not in the canonical UTC form this app writes, so the replay order cannot be trusted. Re-import those rounds.`;
   } else if (duplicates > 0) {
     problem = `${duplicates} event time(s) are shared by more than one round, so the replay order is ambiguous. Narrow the selection (for example by import or date range).`;
   } else if (eligible.n > maxRounds) {
@@ -97,6 +116,7 @@ export function getDatasetReport(
     excludedNoEventTime: undated,
     excludedSynthetic: synthetic,
     duplicateEventTimes: duplicates,
+    nonCanonicalEventTimes: nonCanonical,
     firstEventAt: eligible.first,
     lastEventAt: eligible.last,
     orderable: problem === null,
@@ -107,15 +127,16 @@ export function getDatasetReport(
 }
 
 /** Eligible rounds in replay order (event time ascending; ties are rejected by the report). */
-export function loadReplayRounds(db: Db, dataset: BacktestDataset): BacktestRound[] {
+export function loadReplayRounds(db: Db, dataset: BacktestDataset): ReplayRound[] {
   const { where, params } = roundFilterSql(toFilter(dataset));
   return db
     .prepare(
-      `SELECT id AS roundId, multiplier_x100 AS multiplierX100, event_at AS eventAt
+      `SELECT id AS roundId, multiplier_x100 AS multiplierX100, event_at AS eventAt,
+              source_round_id AS sourceRoundId
          FROM rounds WHERE ${where} AND event_at IS NOT NULL
         ORDER BY event_at ASC, id ASC`,
     )
-    .all(...params) as BacktestRound[];
+    .all(...params) as ReplayRound[];
 }
 
 export interface CompletedRunInput {

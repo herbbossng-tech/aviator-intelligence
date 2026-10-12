@@ -123,7 +123,11 @@ export interface BacktestSummary {
   lowestBankrollMinor: number;
   /** Largest fall from a running peak to a later bankroll, in minor units. */
   maxDrawdownMinor: number;
-  /** That fall as a fraction of the peak it was measured from (0..1). */
+  /**
+   * Largest fall from a running peak relative to that peak, (peak - bankroll) / peak, 0..1.
+   * Tracked separately from maxDrawdownMinor: the largest relative fall can come from a
+   * different (smaller) episode than the largest absolute fall.
+   */
   maxDrawdownFraction: number;
   longestLosingStreak: number;
   legs: LegSummary[];
@@ -132,6 +136,29 @@ export interface BacktestSummary {
 export interface BacktestResult {
   rounds: BacktestRoundResult[];
   summary: BacktestSummary;
+}
+
+/**
+ * Thrown when exact results would leave the range of integers a JavaScript number (and the
+ * JSON API) can represent exactly (Number.MAX_SAFE_INTEGER minor units). The run is refused
+ * rather than reported with rounded figures.
+ */
+export class BacktestLimitError extends RangeError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'BacktestLimitError';
+  }
+}
+
+const MAX_SAFE = BigInt(Number.MAX_SAFE_INTEGER);
+
+function toSafeNumber(value: bigint, what: string): number {
+  if (value > MAX_SAFE || value < -MAX_SAFE) {
+    throw new BacktestLimitError(
+      `${what} exceeds the exactly representable range; use smaller stakes or fewer rounds`,
+    );
+  }
+  return Number(value);
 }
 
 function legOrder(strategy: TwoLegStrategyConfig) {
@@ -188,9 +215,10 @@ export function runBacktest(
         wins: 0,
         losses: 0,
         skipped: 0,
-        stakedMinor: 0,
-        grossReturnMinor: 0,
-        netMinor: 0,
+        // Running totals are exact BigInts; they can exceed 2^53 long before any bankroll does.
+        stakedMinor: 0n,
+        grossReturnMinor: 0n,
+        netMinor: 0n,
       },
     ]),
   );
@@ -240,7 +268,17 @@ export function runBacktest(
         continue;
       }
       available -= leg.stakeMinor;
-      const settled = settleLeg(leg, round.multiplierX100);
+      let settled: ReturnType<typeof settleLeg>;
+      try {
+        settled = settleLeg(leg, round.multiplierX100);
+      } catch (error) {
+        if (error instanceof RangeError && /representable/.test(error.message)) {
+          throw new BacktestLimitError(
+            `Leg ${leg.key}'s return in round ${index + 1}: ${error.message}`,
+          );
+        }
+        throw error;
+      }
       entries.push({
         leg: leg.key,
         result: settled.result,
@@ -250,18 +288,17 @@ export function runBacktest(
         netMinor: settled.netMinor,
       });
       totals.placed += 1;
-      totals.stakedMinor += leg.stakeMinor;
-      totals.grossReturnMinor += settled.grossReturnMinor;
-      totals.netMinor += settled.netMinor;
+      totals.stakedMinor += BigInt(leg.stakeMinor);
+      totals.grossReturnMinor += BigInt(settled.grossReturnMinor);
+      totals.netMinor += BigInt(settled.netMinor);
       if (settled.result === 'win') totals.wins += 1;
       else totals.losses += 1;
     }
 
-    const roundNetMinor = entries.reduce((s, e) => s + e.netMinor, 0);
-    const after = bankroll + roundNetMinor;
-    if (!Number.isSafeInteger(after) || after < 0) {
-      throw new RangeError('Bankroll left the supported integer range');
-    }
+    const roundNet = entries.reduce((s, e) => s + BigInt(e.netMinor), 0n);
+    const roundNetMinor = toSafeNumber(roundNet, 'A round net');
+    const after = toSafeNumber(BigInt(bankroll) + roundNet, 'The bankroll');
+    if (after < 0) throw new Error('Invariant violated: bankroll went negative');
     results.push({
       sequenceNo: index,
       roundId: round.roundId,
@@ -281,10 +318,9 @@ export function runBacktest(
     longestLosingStreak = Math.max(longestLosingStreak, streak);
     peak = Math.max(peak, bankroll);
     lowest = Math.min(lowest, bankroll);
-    if (peak - bankroll > maxDrawdownMinor) {
-      maxDrawdownMinor = peak - bankroll;
-      maxDrawdownFraction = maxDrawdownMinor / peak;
-    }
+    maxDrawdownMinor = Math.max(maxDrawdownMinor, peak - bankroll);
+    // peak >= starting bankroll > 0, so the ratio is defined.
+    maxDrawdownFraction = Math.max(maxDrawdownFraction, (peak - bankroll) / peak);
 
     // Post-round stops take effect before the next round.
     if (risk.stopBelowBankrollMinor !== null && bankroll < risk.stopBelowBankrollMinor) {
@@ -305,24 +341,39 @@ export function runBacktest(
     }
   }
 
+  let staked = 0n;
+  let returned = 0n;
   const legSummaries: LegSummary[] = legs.map((l) => {
     const t = legTotals.get(l.key)!;
+    if (t.netMinor !== t.grossReturnMinor - t.stakedMinor || t.wins + t.losses !== t.placed) {
+      throw new Error(`Invariant violated: leg ${l.key} totals do not reconcile`);
+    }
+    staked += t.stakedMinor;
+    returned += t.grossReturnMinor;
     return {
       leg: l.key,
       label: l.label,
       enabled: l.enabled,
       stakeMinor: l.stakeMinor,
       cashoutTargetX100: l.cashoutTargetX100,
-      ...t,
+      placed: t.placed,
+      wins: t.wins,
+      losses: t.losses,
+      skipped: t.skipped,
+      stakedMinor: toSafeNumber(t.stakedMinor, `Leg ${l.key}'s total stake`),
+      grossReturnMinor: toSafeNumber(t.grossReturnMinor, `Leg ${l.key}'s total return`),
+      netMinor: toSafeNumber(t.netMinor, `Leg ${l.key}'s net`),
       targetReachedShare: t.placed === 0 ? null : t.wins / t.placed,
     };
   });
-  const totalStakedMinor = legSummaries.reduce((s, l) => s + l.stakedMinor, 0);
-  const totalReturnedMinor = legSummaries.reduce((s, l) => s + l.grossReturnMinor, 0);
-  const netProfitMinor = bankroll - settings.startingBankrollMinor;
-  if (netProfitMinor !== totalReturnedMinor - totalStakedMinor) {
-    throw new Error('Ledger does not reconcile: net profit != returned - staked');
+  const net = BigInt(bankroll) - BigInt(settings.startingBankrollMinor);
+  // Exact reconciliation: ending - starting = total returned - total staked.
+  if (net !== returned - staked) {
+    throw new Error('Invariant violated: net profit != returned - staked');
   }
+  const totalStakedMinor = toSafeNumber(staked, 'The total stake');
+  const totalReturnedMinor = toSafeNumber(returned, 'The total return');
+  const netProfitMinor = toSafeNumber(net, 'The net profit');
   return {
     rounds: results,
     summary: {
@@ -450,7 +501,7 @@ export type BacktestRequest = z.infer<typeof backtestRequestSchema>;
 export type BacktestRequestInput = z.input<typeof backtestRequestSchema>;
 
 export const ORDERING_RULE =
-  'Single source; rounds replayed by event time ascending. Rounds without an event time are excluded; duplicate event times make the order ambiguous and are rejected.';
+  'Single source; rounds replayed by event time ascending. Rounds without an event time are excluded; duplicate or non-canonical event times make the order unreliable and are rejected.';
 
 /** A dataset selection after validation (all optional fields resolved to null). */
 export const resolvedDatasetSchema = z.object({
@@ -470,6 +521,11 @@ export const backtestDatasetReportSchema = z.object({
   excludedSynthetic: z.number().int().min(0),
   /** Number of event-time values shared by two or more eligible rounds. */
   duplicateEventTimes: z.number().int().min(0),
+  /**
+   * Eligible rounds whose stored event time is not in the canonical UTC form the app writes
+   * (YYYY-MM-DDTHH:MM:SS.sssZ). Text ordering is only reliable for that form.
+   */
+  nonCanonicalEventTimes: z.number().int().min(0),
   firstEventAt: z.string().nullable(),
   lastEventAt: z.string().nullable(),
   orderable: z.boolean(),

@@ -97,7 +97,7 @@ function RunView({ run }: { run: SimulationRunDto }) {
             <StatCard
               label="Max drawdown"
               value={money(summary.maxDrawdownMinor)}
-              detail={`${formatPercent(summary.maxDrawdownFraction)} of the peak it fell from (peak ${money(summary.peakBankrollMinor)})`}
+              detail={`Largest fall from a running peak · largest relative fall ${formatPercent(summary.maxDrawdownFraction)} · peak ${money(summary.peakBankrollMinor)}`}
             />
             <StatCard
               label="Lowest bankroll"
@@ -197,8 +197,8 @@ function RunView({ run }: { run: SimulationRunDto }) {
                   <dt className="text-slate-500">Leg {k}</dt>
                   <dd className="text-slate-200">
                     {leg.enabled
-                      ? `${leg.label}: ${money(leg.stakeMinor)} at ${formatMultiplierX100(leg.cashoutTargetX100)}`
-                      : `${leg.label}: disabled`}
+                      ? `${money(leg.stakeMinor)} at ${formatMultiplierX100(leg.cashoutTargetX100)} (“${leg.label}”)`
+                      : `Disabled (“${leg.label}”)`}
                   </dd>
                 </div>
               );

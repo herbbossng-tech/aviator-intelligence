@@ -109,11 +109,13 @@ export function settleLeg(
     throw new RangeError('Stake must be a positive integer amount in minor units');
   }
   if (roundMultiplierX100 >= leg.cashoutTargetX100) {
-    const product = leg.stakeMinor * leg.cashoutTargetX100;
-    if (!Number.isSafeInteger(product)) {
-      throw new RangeError('Stake x target exceeds safe integer range');
+    // Exact integer arithmetic: stake x target can exceed 2^53 even when the return does not.
+    const gross =
+      (BigInt(leg.stakeMinor) * BigInt(leg.cashoutTargetX100)) / BigInt(MULTIPLIER_SCALE);
+    if (gross > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new RangeError('The gross return exceeds the exactly representable integer range');
     }
-    const grossReturnMinor = Math.floor(product / MULTIPLIER_SCALE);
+    const grossReturnMinor = Number(gross);
     return { result: 'win', grossReturnMinor, netMinor: grossReturnMinor - leg.stakeMinor };
   }
   return { result: 'loss', grossReturnMinor: 0, netMinor: -leg.stakeMinor };

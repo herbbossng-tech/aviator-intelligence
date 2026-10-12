@@ -102,7 +102,7 @@ export function SimulationsPage() {
                       Net
                     </th>
                     <th scope="col" className="py-2 pr-4 text-right font-medium">
-                      Max drawdown
+                      Max drawdown (% of peak)
                     </th>
                   </tr>
                 </thead>
@@ -219,11 +219,12 @@ function Comparison({ runs, onClear }: { runs: SimulationRunDto[]; onClear: () =
       (r) => (r.summary ? signedPercent(r.summary.returnOnStartingBankroll) : '—'),
     ],
     [
-      'Max drawdown',
-      (r) =>
-        r.summary
-          ? `${formatMinorAmount(r.summary.maxDrawdownMinor, r.summary.currency)} (${formatPercent(r.summary.maxDrawdownFraction)})`
-          : '—',
+      'Max drawdown (amount)',
+      (r) => (r.summary ? formatMinorAmount(r.summary.maxDrawdownMinor, r.summary.currency) : '—'),
+    ],
+    [
+      'Max drawdown (% of running peak)',
+      (r) => (r.summary ? formatPercent(r.summary.maxDrawdownFraction) : '—'),
     ],
     [
       'Lowest bankroll',

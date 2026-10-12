@@ -22,6 +22,7 @@ function report(overrides: Partial<BacktestDatasetReport> = {}): BacktestDataset
     excludedNoEventTime: 1,
     excludedSynthetic: 2,
     duplicateEventTimes: 0,
+    nonCanonicalEventTimes: 0,
     firstEventAt: at(0),
     lastEventAt: at(2),
     orderable: true,
@@ -343,6 +344,19 @@ describe('Simulations list', () => {
         .map((c) => c.textContent),
     ).toEqual(['+₦4.00', '+₦4.00']);
     expect(within(comparison).getByText(/synthetic-other/)).toBeTruthy();
+    // Drawdown is reported as two separately defined metrics, never one mixed figure.
+    const ddPct = within(comparison)
+      .getByRole('rowheader', { name: 'Max drawdown (% of running peak)' })
+      .closest('tr')!;
+    const pct = `${(RESULT.summary.maxDrawdownFraction * 100).toFixed(1)}%`;
+    expect(
+      within(ddPct)
+        .getAllByRole('cell')
+        .map((c) => c.textContent),
+    ).toEqual([pct, pct]);
+    expect(
+      within(comparison).getByRole('rowheader', { name: 'Max drawdown (amount)' }),
+    ).toBeTruthy();
   });
 });
 
@@ -372,6 +386,9 @@ describe('Simulation run detail', () => {
 
     expect(screen.getByText('ab'.repeat(32))).toBeTruthy();
     expect(screen.getByText(/Risk of ruin is not estimated/)).toBeTruthy();
+    expect(screen.getByText('₦1.00 at 2.00x (“Leg A”)')).toBeTruthy();
+    expect(screen.getByText(/largest relative fall 20\.0%/)).toBeTruthy();
+    expect(screen.getByText('Non-canonical event times').nextSibling?.textContent).toBe('0');
   });
 
   it('shows a failed run without results', async () => {

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -474,5 +475,88 @@ describe('persistence', () => {
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe('review regressions', () => {
+  it('refuses a run whose exact results would exceed the safe integer range (422, nothing stored)', async () => {
+    seedSeries(db, [100_000_000]);
+    const base = request();
+    const res = await post({
+      ...base,
+      strategy: {
+        ...base.strategy,
+        legs: {
+          A: { ...base.strategy.legs.A, stakeMinor: 1e12, cashoutTargetX100: 100_000_000 },
+          B: { ...base.strategy.legs.B, enabled: false },
+        },
+      },
+      settings: { ...base.settings, startingBankrollMinor: 1e12 },
+    });
+    expect(res.status).toBe(422);
+    expect(apiErrorSchema.parse(await res.json()).error.code).toBe('simulation_out_of_range');
+    expect(count('simulation_runs')).toBe(0);
+    expect(count('ledger_entries')).toBe(0);
+  });
+
+  it('accepts only plain decimal run ids', async () => {
+    seedSeries(db, [150, 200]);
+    const run = await runOk();
+    expect(run.id).toBe(1);
+    for (const id of ['1e0', '0x1', '+1', '1.0', ' 1', '01']) {
+      const res = await fetch(`${server.baseUrl}/api/simulations/${encodeURIComponent(id)}`);
+      expect(res.status, id).toBe(404);
+    }
+  });
+
+  it('refuses event times stored in a non-canonical form (ordering would be unreliable)', async () => {
+    seedSeries(db, [150, 200]);
+    // Written directly, bypassing the application's normalisation.
+    db.prepare(
+      `INSERT INTO rounds (multiplier_x100, source, observed_at, event_at, is_synthetic)
+       VALUES (300, ?, '2026-06-01T00:00:00.000Z', '2026-01-01T00:00:05Z', 0)`,
+    ).run(SOURCE);
+    const report = backtestDatasetReportSchema.parse(
+      await (await fetch(`${server.baseUrl}/api/simulations/dataset?source=${SOURCE}`)).json(),
+    );
+    expect(report).toMatchObject({ orderable: false, nonCanonicalEventTimes: 1 });
+    const res = await post(request());
+    expect(res.status).toBe(422);
+    expect(count('simulation_runs')).toBe(0);
+  });
+
+  it('fingerprints the documented canonical encoding, including source and source round ids', async () => {
+    seed(db, [
+      { m: 150, eventAt: at(0) },
+      { m: 200, eventAt: at(1) },
+    ]);
+    db.prepare('UPDATE rounds SET source_round_id = ? WHERE id = 1').run('r,1\n');
+    const run = await runOk();
+    const lines = [
+      'aviator-intelligence/backtest-dataset/v1',
+      JSON.stringify(SOURCE),
+      JSON.stringify([1, 'r,1\n', 150, at(0)]),
+      JSON.stringify([2, null, 200, at(1)]),
+    ];
+    const expected = createHash('sha256')
+      .update(lines.map((l) => `${l}\n`).join(''))
+      .digest('hex');
+    expect(run.datasetSha256).toBe(expected);
+  });
+
+  it('keeps a stored ledger immutable and a completed run completed', async () => {
+    seedSeries(db, [150, 200]);
+    const run = await runOk();
+    expect(() => db.prepare('UPDATE ledger_entries SET net_minor = net_minor').run()).toThrow(
+      /immutable/,
+    );
+    expect(() =>
+      db
+        .prepare(
+          `UPDATE simulation_runs SET status = 'failed', summary_json = NULL, stop_reason = NULL,
+             ending_bankroll_minor = NULL, rounds_processed = NULL WHERE id = ?`,
+        )
+        .run(run.id),
+    ).toThrow(/completed simulation run cannot change status/);
   });
 });

@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
 import {
+  BacktestLimitError,
   runBacktest,
   type BacktestDatasetReport,
   type BacktestRequest,
-  type BacktestRound,
   type SimulationRunDto,
 } from '@aviator/shared';
 import type { Db } from '../db/connection.js';
@@ -13,13 +13,25 @@ import {
   insertCompletedRun,
   insertFailedRun,
   loadReplayRounds,
+  type ReplayRound,
 } from '../db/repositories/simulations.js';
 import { HttpError } from '../http/errors.js';
 
-/** SHA-256 of the ordered (roundId, multiplierX100, eventAt) list: identical input, identical hash. */
-export function hashReplayRounds(rounds: readonly BacktestRound[]): string {
+export const DATASET_FINGERPRINT_VERSION = 'aviator-intelligence/backtest-dataset/v1';
+
+/**
+ * SHA-256 over a canonical, unambiguous encoding of exactly what was replayed, in replay
+ * order: a version line, the JSON-encoded source, then one JSON array per round
+ * [roundId, sourceRoundId, multiplierX100, eventAt]. JSON escaping means no field value can
+ * be confused with a separator. It identifies the data representation that was hashed; it
+ * does not prove the data is authentic.
+ */
+export function hashReplayRounds(source: string, rounds: readonly ReplayRound[]): string {
   const hash = createHash('sha256');
-  for (const r of rounds) hash.update(`${r.roundId},${r.multiplierX100},${r.eventAt}\n`);
+  hash.update(`${DATASET_FINGERPRINT_VERSION}\n${JSON.stringify(source)}\n`);
+  for (const r of rounds) {
+    hash.update(`${JSON.stringify([r.roundId, r.sourceRoundId, r.multiplierX100, r.eventAt])}\n`);
+  }
   return hash.digest('hex');
 }
 
@@ -64,13 +76,17 @@ export function runAndStoreBacktest(
         settings: request.settings,
         datasetRequest: request.dataset,
         report,
-        datasetSha256: hashReplayRounds(rounds),
+        datasetSha256: hashReplayRounds(request.dataset.source, rounds),
         result,
         startedAt,
         completedAt: now().toISOString(),
       });
     })();
   } catch (error) {
+    if (error instanceof BacktestLimitError) {
+      // A deterministic property of the request and data, not a failure: nothing is stored.
+      throw new HttpError(422, 'simulation_out_of_range', error.message);
+    }
     if (error instanceof NotOrderableError) {
       throw new HttpError(422, 'dataset_not_replayable', error.message, {
         dataset: error.report,

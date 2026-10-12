@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BacktestLimitError,
   backtestDatasetQuerySchema,
   backtestDatasetSchema,
   backtestRequestSchema,
@@ -376,5 +377,136 @@ describe('parseMajorAmountToMinor', () => {
     for (const bad of ['', 'abc', '-5', '1.234', '1e3', '1.', '.5', '99999999999999']) {
       expect(parseMajorAmountToMinor(bad, 'NGN')).toBeNull();
     }
+  });
+});
+
+describe('runBacktest review regressions', () => {
+  it('reports the largest relative drawdown, not the relative size of the largest amount', () => {
+    // Leg A only (2.00x @ 100). Start 200: a loss to 100 is a 50% drawdown (100 minor).
+    // Nine wins reach a 1,000 peak; two losses fall to 800: 200 minor but only 20%.
+    const { summary } = runBacktest(
+      rounds([100, ...Array<number>(9).fill(200), 100, 100]),
+      strategy({}, { enabled: false }),
+      settings({ startingBankrollMinor: 200 }),
+    );
+    expect(summary.maxDrawdownMinor).toBe(200);
+    expect(summary.maxDrawdownFraction).toBe(0.5);
+  });
+
+  it('keeps totals exact near 2^53 and refuses totals beyond it instead of losing precision', () => {
+    // Odd stake, 1.01x target, every round wins: net +9,999,999,999 per round.
+    const stake = 999_999_999_999;
+    const run = (n: number) =>
+      runBacktest(
+        Array.from({ length: n }, (_, i) => ({
+          roundId: i + 1,
+          multiplierX100: 101,
+          eventAt: new Date(Date.UTC(2026, 0, 1) + i * 1000).toISOString(),
+        })),
+        strategy({ stakeMinor: stake, cashoutTargetX100: 101 }, { enabled: false }),
+        settings({ startingBankrollMinor: stake }),
+      );
+    const { summary } = run(8_900); // total returned ~8.99e15, just inside 2^53
+    expect(BigInt(summary.totalStakedMinor)).toBe(8_900n * BigInt(stake));
+    expect(BigInt(summary.totalReturnedMinor)).toBe(8_900n * ((BigInt(stake) * 101n) / 100n));
+    expect(summary.netProfitMinor).toBe(summary.totalReturnedMinor - summary.totalStakedMinor);
+    // 10,000 rounds stake ~1e16 in total, beyond Number.MAX_SAFE_INTEGER.
+    expect(() => run(10_000)).toThrow(BacktestLimitError);
+  });
+
+  it('refuses a winning leg whose return cannot be represented exactly', () => {
+    expect(() =>
+      runBacktest(
+        rounds([100_000_000]),
+        strategy({ stakeMinor: 1e12, cashoutTargetX100: 100_000_000 }, { enabled: false }),
+        settings({ startingBankrollMinor: 1e12 }),
+      ),
+    ).toThrow(BacktestLimitError);
+  });
+
+  it('settles a split round: one leg wins and the other loses, against the start-of-round bankroll', () => {
+    // 3.00x round: A (2.00x) returns 200, B (6.00x) loses 100. Both stakes are funded from 200.
+    const { rounds: out } = runBacktest(
+      rounds([300]),
+      strategy(),
+      settings({ startingBankrollMinor: 200 }),
+    );
+    expect(out[0]).toMatchObject({
+      bankrollBeforeMinor: 200,
+      bankrollAfterMinor: 200,
+      roundNetMinor: 0,
+    });
+    expect(
+      out[0]!.legs.map((l) => [l.result, l.stakeMinor, l.grossReturnMinor, l.netMinor]),
+    ).toEqual([
+      ['win', 100, 200, 100],
+      ['loss', 100, 0, -100],
+    ]);
+  });
+
+  it('never funds leg B with leg A winnings from the same round', () => {
+    // Bankroll 150: A (100) is placed, 50 remains, so B (100) is skipped even though A wins.
+    const { rounds: out } = runBacktest(
+      rounds([700]),
+      strategy(),
+      settings({ startingBankrollMinor: 150 }),
+    );
+    expect(out[0]!.legs.map((l) => l.result)).toEqual(['win', 'skipped']);
+    expect(out[0]!.bankrollAfterMinor).toBe(250);
+  });
+
+  it('stops after a round that empties the bankroll, and reconciles at every level', () => {
+    const { rounds: out, summary } = runBacktest(
+      rounds([100, 700]),
+      strategy(),
+      settings({ startingBankrollMinor: 200 }),
+    );
+    expect(out).toHaveLength(1);
+    expect(summary).toMatchObject({
+      endingBankrollMinor: 0,
+      lowestBankrollMinor: 0,
+      stopReason: 'bankroll_exhausted',
+      roundsNotReplayed: 1,
+      maxDrawdownFraction: 1,
+    });
+    for (const r of out) {
+      expect(r.bankrollAfterMinor - r.bankrollBeforeMinor).toBe(r.roundNetMinor);
+      expect(r.legs.reduce((s, l) => s + l.netMinor, 0)).toBe(r.roundNetMinor);
+      for (const l of r.legs) expect(l.netMinor).toBe(l.grossReturnMinor - l.stakeMinor);
+    }
+    for (const l of summary.legs) {
+      expect(l.netMinor).toBe(l.grossReturnMinor - l.stakedMinor);
+      expect(l.wins + l.losses).toBe(l.placed);
+    }
+  });
+
+  it('applies stops exactly at their boundaries', () => {
+    // Lower stop is strict (<): ending exactly on it does not stop.
+    expect(
+      runBacktest(rounds([100, 100]), strategy(), settings({}, { stopBelowBankrollMinor: 800 }))
+        .summary,
+    ).toMatchObject({ stopReason: 'stop_below', roundsReplayed: 2, endingBankrollMinor: 600 });
+    // Upper stop is inclusive (>=).
+    expect(
+      runBacktest(
+        rounds([700, 700]),
+        strategy(),
+        settings({}, { stopAtOrAboveBankrollMinor: 1_600 }),
+      ).summary,
+    ).toMatchObject({
+      stopReason: 'stop_at_or_above',
+      roundsReplayed: 1,
+      endingBankrollMinor: 1_600,
+    });
+    // Drawdown 1999 bps is not reached by a 20% fall; 2000 bps is (exact comparison).
+    const losing = rounds([100, 100]);
+    expect(
+      runBacktest(losing, strategy(), settings({}, { maxDrawdownBps: 2_001 })).summary
+        .roundsReplayed,
+    ).toBe(2);
+    expect(
+      runBacktest(losing, strategy(), settings({}, { maxDrawdownBps: 2_000 })).summary
+        .roundsReplayed,
+    ).toBe(1);
   });
 });

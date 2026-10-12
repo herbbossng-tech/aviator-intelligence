@@ -17,7 +17,12 @@ import {
 import { runAndStoreBacktest } from '../../simulations/service.js';
 import { HttpError } from '../errors.js';
 
-const runIdSchema = z.coerce.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+/** Plain decimal ids only: no exponents, hex, signs, spaces or leading zeros. */
+const runIdSchema = z
+  .string()
+  .regex(/^[1-9]\d{0,15}$/)
+  .transform(Number)
+  .pipe(z.number().int().positive().max(Number.MAX_SAFE_INTEGER));
 
 export interface SimulationsRouterOptions {
   log: (message: string, error: unknown) => void;
