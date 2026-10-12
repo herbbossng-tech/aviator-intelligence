@@ -116,6 +116,23 @@ function RunView({ run }: { run: SimulationRunDto }) {
             />
           </div>
 
+          <Panel
+            title="Uncertainty analysis"
+            subtitle="How sensitive is this result to the particular historical sequence?"
+          >
+            <p className="text-sm text-slate-400">
+              Resample this run&apos;s {formatCount(run.dataset?.roundsEligible ?? 0)} observed
+              multipliers (IID bootstrap) and replay the same configuration on many resampled paths.
+              A sensitivity check under stated assumptions, not a prediction.
+            </p>
+            <Link
+              to={`/simulations/${run.id}/uncertainty`}
+              className="mt-3 inline-block rounded-md bg-slate-800 px-3 py-2 text-sm text-slate-200 ring-1 ring-slate-700 hover:bg-slate-700"
+            >
+              Open uncertainty analysis
+            </Link>
+          </Panel>
+
           <Panel title="Per leg" subtitle="Win rate denominators are placed bets">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[44rem] text-left text-sm">

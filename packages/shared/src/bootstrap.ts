@@ -431,3 +431,4 @@ export const simulationAnalysesListSchema = z.object({
   maxPaths: z.number().int(),
   sampleSize: z.number().int().nullable(),
 });
+export type SimulationAnalysesList = z.infer<typeof simulationAnalysesListSchema>;
