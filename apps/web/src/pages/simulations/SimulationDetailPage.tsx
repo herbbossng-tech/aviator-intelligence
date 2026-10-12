@@ -308,7 +308,7 @@ function Ledger({ run }: { run: SimulationRunDto }) {
                     <td className="py-2 pr-4 whitespace-nowrap text-slate-300">
                       {formatTimestamp(r.eventAt)}
                     </td>
-                    <td className="py-2 pr-4 text-right font-mono tabular-nums">
+                    <td className="py-2 pr-4 text-right font-mono whitespace-nowrap tabular-nums">
                       {formatMultiplierX100(r.multiplierX100)}
                     </td>
                     <td className="py-2 pr-4 text-xs text-slate-300">
@@ -322,10 +322,10 @@ function Ledger({ run }: { run: SimulationRunDto }) {
                         </div>
                       ))}
                     </td>
-                    <td className="py-2 pr-4 text-right font-mono tabular-nums">
+                    <td className="py-2 pr-4 text-right font-mono whitespace-nowrap tabular-nums">
                       {formatSignedMinor(r.roundNetMinor, run.settings.currency)}
                     </td>
-                    <td className="py-2 pr-4 text-right font-mono tabular-nums">
+                    <td className="py-2 pr-4 text-right font-mono whitespace-nowrap tabular-nums">
                       {money(r.bankrollAfterMinor)}
                     </td>
                   </tr>

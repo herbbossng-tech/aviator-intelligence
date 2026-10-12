@@ -147,15 +147,15 @@ export function SimulationsPage() {
                       <td className="py-2 pr-4 text-xs break-all text-slate-400">
                         {describeDatasetRequest(run.datasetRequest)}
                       </td>
-                      <td className="py-2 pr-4 text-right font-mono tabular-nums">
+                      <td className="py-2 pr-4 text-right font-mono whitespace-nowrap tabular-nums">
                         {run.summary ? formatCount(run.summary.roundsReplayed) : '—'}
                       </td>
-                      <td className="py-2 pr-4 text-right font-mono tabular-nums">
+                      <td className="py-2 pr-4 text-right font-mono whitespace-nowrap tabular-nums">
                         {run.summary
                           ? formatSignedMinor(run.summary.netProfitMinor, run.summary.currency)
                           : '—'}
                       </td>
-                      <td className="py-2 pr-4 text-right font-mono tabular-nums">
+                      <td className="py-2 pr-4 text-right font-mono whitespace-nowrap tabular-nums">
                         {run.summary ? formatPercent(run.summary.maxDrawdownFraction) : '—'}
                       </td>
                     </tr>
