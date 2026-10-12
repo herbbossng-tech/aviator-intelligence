@@ -74,6 +74,7 @@ describe('database initialisation', () => {
       'ledger_entries',
       'rounds',
       'schema_migrations',
+      'simulation_analyses',
       'simulation_runs',
       'strategies',
     ]);

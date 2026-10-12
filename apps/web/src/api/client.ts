@@ -14,9 +14,12 @@ import {
   overviewResponseSchema,
   roundSourcesResponseSchema,
   roundsListResponseSchema,
+  simulationAnalysesListSchema,
+  simulationAnalysisDtoSchema,
   simulationRunDtoSchema,
   simulationRunsListSchema,
   validationDetailSchema,
+  type AnalysisSettings,
   type BacktestRequestInput,
   type ImportFormat,
   type ValidationDetail,
@@ -171,4 +174,8 @@ export const api = {
       ledgerResponseSchema,
       signal,
     ),
+  simulationAnalyses: (runId: number, signal?: AbortSignal) =>
+    getJson(`/api/simulations/${runId}/analyses?limit=50`, simulationAnalysesListSchema, signal),
+  runAnalysis: (runId: number, settings: AnalysisSettings) =>
+    postJson(`/api/simulations/${runId}/analyses`, simulationAnalysisDtoSchema, settings),
 };

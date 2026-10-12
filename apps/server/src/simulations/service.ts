@@ -20,8 +20,8 @@ import { HttpError } from '../http/errors.js';
 export const DATASET_FINGERPRINT_VERSION = 'aviator-intelligence/backtest-dataset/v1';
 
 /**
- * SHA-256 over a canonical, unambiguous encoding of exactly what was replayed, in replay
- * order: a version line, the JSON-encoded source, then one JSON array per round
+ * SHA-256 over a canonical, unambiguous encoding of the dataset's eligible rounds in replay
+ * order (all of them, even if a stop ended the replay early): a version line, the JSON-encoded source, then one JSON array per round
  * [roundId, sourceRoundId, multiplierX100, eventAt]. JSON escaping means no field value can
  * be confused with a separator. It identifies the data representation that was hashed; it
  * does not prove the data is authentic.

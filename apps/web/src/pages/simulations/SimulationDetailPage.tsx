@@ -116,6 +116,23 @@ function RunView({ run }: { run: SimulationRunDto }) {
             />
           </div>
 
+          <Panel
+            title="Uncertainty analysis"
+            subtitle="How sensitive is this result to the particular historical sequence?"
+          >
+            <p className="text-sm text-slate-400">
+              Resample this run&apos;s {formatCount(run.dataset?.roundsEligible ?? 0)} observed
+              multipliers (IID bootstrap) and replay the same configuration on many resampled paths.
+              A sensitivity check under stated assumptions, not a prediction.
+            </p>
+            <Link
+              to={`/simulations/${run.id}/uncertainty`}
+              className="mt-3 inline-block rounded-md bg-slate-800 px-3 py-2 text-sm text-slate-200 ring-1 ring-slate-700 hover:bg-slate-700"
+            >
+              Open uncertainty analysis
+            </Link>
+          </Panel>
+
           <Panel title="Per leg" subtitle="Win rate denominators are placed bets">
             <div className="overflow-x-auto">
               <table className="w-full min-w-[44rem] text-left text-sm">
@@ -228,7 +245,8 @@ function RunView({ run }: { run: SimulationRunDto }) {
           )}
           {run.datasetSha256 ? (
             <p className="mt-4 text-xs break-all text-slate-500">
-              SHA-256 of the replayed rounds (id, multiplier, event time, in order):{' '}
+              SHA-256 of the dataset's eligible rounds in replay order (source, then each round's
+              id, source id, multiplier and event time), whether or not the replay reached them:{' '}
               <span className="font-mono text-slate-300">{run.datasetSha256}</span>. Re-running the
               same configuration on the same rounds gives the same hash and results.
             </p>

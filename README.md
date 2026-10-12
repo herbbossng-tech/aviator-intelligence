@@ -11,7 +11,7 @@ A local-first web dashboard for **researching** the crash-style game Aviator. It
 
 ## Current status
 
-Foundation pass 1, **pass 2 (historical round data manager)**, **pass 3 (historical analytics)** and **pass 4 (virtual simulation and historical backtesting)** are implemented. See [docs/PROJECT_SCOPE.md](docs/PROJECT_SCOPE.md) for the full implemented / planned / excluded breakdown.
+Foundation pass 1, **pass 2 (historical round data manager)**, **pass 3 (historical analytics)**, **pass 4 (virtual simulation and historical backtesting)** and **pass 5 (simulation uncertainty analysis)** are implemented. See [docs/PROJECT_SCOPE.md](docs/PROJECT_SCOPE.md) for the full implemented / planned / excluded breakdown.
 
 | Area                                                                                                                      | Status                                                                                           |
 | ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
@@ -25,6 +25,7 @@ Foundation pass 1, **pass 2 (historical round data manager)**, **pass 3 (histori
 | Round data manager: manual entry, CSV/JSON import with preview, duplicate detection, import history, filtering            | Done (pass 2)                                                                                    |
 | Virtual backtests: two-leg engine, dataset ordering checks, persistent ledger, run comparison                             | Done (pass 4)                                                                                    |
 | Historical analytics: summary, nearest-rank quantiles, P(M ≥ t) with 95% Wilson intervals, histogram, data-quality report | Done (pass 3)                                                                                    |
+| Uncertainty analysis of backtests: seeded IID bootstrap, quantiles, configured-boundary frequency                         | Done (pass 5)                                                                                    |
 | Playwright browser tests of the dashboard                                                                                 | Planned                                                                                          |
 | Live observation                                                                                                          | Out of scope until reviewed ([docs/LIVE_OBSERVATION_REVIEW.md](docs/LIVE_OBSERVATION_REVIEW.md)) |
 | Real-money execution / betting automation                                                                                 | Excluded                                                                                         |
@@ -61,9 +62,17 @@ These figures describe historical records only; they do not predict the next mul
 - rounds without an event time and synthetic fixtures are excluded and counted; ambiguous ordering is refused
 - each run and its full ledger are stored in one transaction; failed runs are recorded as failed with no ledger
 - results include staked, returned (gross) and net, return on the starting bankroll, per-leg wins and losses with denominators, max drawdown, lowest bankroll and longest losing streak
-- a SHA-256 of the replayed rounds makes reruns verifiable
+- a SHA-256 of the dataset's eligible rounds (in replay order) makes reruns verifiable
 
 Backtests use virtual money only and do not predict future rounds. The method is in **[docs/SIMULATION.md](docs/SIMULATION.md)**.
+
+**Uncertainty analysis** (from a completed run, or `/api/simulations/:id/analyses`) resamples that run's own observed multipliers with a seeded IID bootstrap and replays the same configuration on many paths. It reports:
+
+- quantiles of the ending bankroll and drawdown
+- net-outcome and stop-reason counts, each with its denominator
+- how often paths hit the run's configured stops under the model
+
+These are model-conditional sensitivity figures, not predictions, not real-world probabilities of loss, and not evidence of profit. See **[docs/UNCERTAINTY.md](docs/UNCERTAINTY.md)**.
 
 The full contract covers formats, limits, error codes and duplicate rules: **[docs/DATA_IMPORT.md](docs/DATA_IMPORT.md)**. Synthetic example files are in [docs/examples/](docs/examples/).
 

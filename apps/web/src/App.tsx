@@ -11,6 +11,7 @@ import { ImportPage } from './pages/rounds/ImportPage';
 import { ManualEntryPage } from './pages/rounds/ManualEntryPage';
 import { RoundsLayout } from './pages/rounds/RoundsLayout';
 import { SimulationDetailPage } from './pages/simulations/SimulationDetailPage';
+import { UncertaintyPage } from './pages/simulations/UncertaintyPage';
 import { SimulationsPage } from './pages/SimulationsPage';
 import { StrategyLabPage } from './pages/StrategyLabPage';
 
@@ -29,6 +30,7 @@ export function App() {
         <Route path="strategy-lab" element={<StrategyLabPage />} />
         <Route path="simulations" element={<SimulationsPage />} />
         <Route path="simulations/:id" element={<SimulationDetailPage />} />
+        <Route path="simulations/:id/uncertainty" element={<UncertaintyPage />} />
         <Route path="data-sources" element={<DataSourcesPage />} />
         <Route path="methodology" element={<MethodologyPage />} />
         <Route path="*" element={<NotFoundPage />} />

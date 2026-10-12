@@ -119,7 +119,7 @@ All amounts are virtual, in minor units, shown in major units in the UI.
 | Max drawdown (% of running peak) | Largest value of (peak − bankroll) / peak over the run; the same quantity the drawdown stop uses. It can come from a different episode than the largest amount |
 | Longest losing streak            | Most consecutive rounds with a negative round net (a break-even round ends a streak)                                                                           |
 
-**Risk of ruin is not reported.** A single historical path gives one realisation, not a distribution. Reporting a probability of ruin would need a defensible model, such as resampling with stated assumptions, and that is deferred. Max drawdown and lowest bankroll describe this replay only.
+**Risk of ruin is not reported for a backtest.** A single historical path gives one realisation, not a distribution. Max drawdown and lowest bankroll describe this replay only. A completed run can be resampled with the separate uncertainty analysis ([UNCERTAINTY.md](UNCERTAINTY.md)). That analysis reports how often resampled paths reached a _configured_ boundary under a stated bootstrap model. This is a narrowly defined model frequency, not an unconditional probability of ruin.
 
 ## Persistence and failure handling
 
@@ -145,7 +145,7 @@ Each run stores:
 
 - the exact strategy and settings
 - the dataset request and the resolved dataset report
-- `dataset_sha256`: SHA-256 over a canonical encoding of exactly what was replayed, in replay order:
+- `dataset_sha256`: SHA-256 over a canonical encoding of the dataset's eligible rounds, in replay order. It covers every eligible round, including any that an early-stopped replay never reached:
 
   ```
   aviator-intelligence/backtest-dataset/v1\n
@@ -184,6 +184,6 @@ The routes sit behind the same loopback Host guard as the rest of the API.
 
 - The settlement rule (M ≥ T, rounded down) has not been confirmed against the platform's published rules.
 - The replay ignores anything the recorded data cannot show: timing, latency, manual cashouts, platform limits, and whether a cashout would actually have been accepted.
-- A backtest over one historical sequence says nothing about the distribution of outcomes on other sequences. No confidence intervals or resampling are reported yet.
+- A backtest over one historical sequence says nothing about the distribution of outcomes on other sequences. The optional uncertainty analysis ([UNCERTAINTY.md](UNCERTAINTY.md)) resamples the same observations under an IID bootstrap model. It does not add new information, and it does not report confidence intervals.
 - Selections larger than 100,000 eligible rounds must be narrowed.
 - `limit`, `offset` and `importId` query parameters use the same lenient number parsing as the rest of the API (for example `1e1` is read as 10). Run ids in the path are strict. Making query parsing strict across every endpoint is deferred.

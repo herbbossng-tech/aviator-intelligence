@@ -39,6 +39,11 @@ export function MethodologyPage() {
             </li>
             <li>Streaks and patterns in past multipliers are not treated as predictors.</li>
             <li>
+              Uncertainty analyses resample a run&apos;s own observations under a stated IID
+              bootstrap model. Their figures, including how often paths hit a configured stop, are
+              conditional on that model and are not probabilities of real-world loss.
+            </li>
+            <li>
               Backtest results report drawdown, lowest bankroll, losing streaks and every
               denominator, not totals alone. Risk of ruin is not estimated from a single replay.
             </li>

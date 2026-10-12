@@ -189,18 +189,23 @@ function exceedsDrawdown(peak: number, bankroll: number, maxDrawdownBps: number)
   return BigInt(peak - bankroll) * 10_000n >= BigInt(maxDrawdownBps) * BigInt(peak);
 }
 
-export function runBacktest(
-  rounds: readonly BacktestRound[],
-  strategyInput: TwoLegStrategyConfig,
-  settingsInput: SimulationSettings,
-): BacktestResult {
-  const strategy = twoLegStrategyConfigSchema.parse(strategyInput);
-  const settings = simulationSettingsSchema.parse(settingsInput);
-  if (strategy.currency !== settings.currency) {
-    throw new RangeError('Strategy and settings must use the same currency');
-  }
-  assertReplayableRounds(rounds);
+/** A replayed round before historical identity (round id, event time) is attached. */
+export type ReplayedRound = Omit<BacktestRoundResult, 'roundId' | 'eventAt'>;
 
+/**
+ * The single replay loop behind both the historical backtest and the uncertainty
+ * analysis: staking, settlement (settleLeg), bankroll accounting, stops and metrics.
+ * Inputs must already be validated (parsed strategy and settings with matching
+ * currencies); multipliers are validated by settleLeg as they are settled.
+ * `recordRounds` keeps the per-round ledger; resampled paths turn it off to bound memory.
+ */
+function replayCore(
+  count: number,
+  multiplierAt: (index: number) => number,
+  strategy: TwoLegStrategyConfig,
+  settings: SimulationSettings,
+  recordRounds: boolean,
+): { rounds: ReplayedRound[]; summary: BacktestSummary } {
   const legs = legOrder(strategy);
   const enabled = legs.filter((l) => l.enabled);
   const minStake = Math.min(...enabled.map((l) => l.stakeMinor));
@@ -222,7 +227,8 @@ export function runBacktest(
       },
     ]),
   );
-  const results: BacktestRoundResult[] = [];
+  const results: ReplayedRound[] = [];
+  let replayed = 0;
   let bankroll = settings.startingBankrollMinor;
   let peak = bankroll;
   let lowest = bankroll;
@@ -235,7 +241,8 @@ export function runBacktest(
   let breakEven = 0;
   let stopReason: StopReason = 'completed_all_rounds';
 
-  for (const [index, round] of rounds.entries()) {
+  for (let index = 0; index < count; index++) {
+    const multiplierX100 = multiplierAt(index);
     // Pre-round stops depend only on the configuration and the bankroll so far.
     if (risk.maxRounds !== null && index >= risk.maxRounds) {
       stopReason = 'max_rounds';
@@ -270,7 +277,7 @@ export function runBacktest(
       available -= leg.stakeMinor;
       let settled: ReturnType<typeof settleLeg>;
       try {
-        settled = settleLeg(leg, round.multiplierX100);
+        settled = settleLeg(leg, multiplierX100);
       } catch (error) {
         if (error instanceof RangeError && /representable/.test(error.message)) {
           throw new BacktestLimitError(
@@ -299,16 +306,17 @@ export function runBacktest(
     const roundNetMinor = toSafeNumber(roundNet, 'A round net');
     const after = toSafeNumber(BigInt(bankroll) + roundNet, 'The bankroll');
     if (after < 0) throw new Error('Invariant violated: bankroll went negative');
-    results.push({
-      sequenceNo: index,
-      roundId: round.roundId,
-      eventAt: round.eventAt,
-      multiplierX100: round.multiplierX100,
-      bankrollBeforeMinor: bankroll,
-      bankrollAfterMinor: after,
-      roundNetMinor,
-      legs: entries,
-    });
+    if (recordRounds) {
+      results.push({
+        sequenceNo: index,
+        multiplierX100,
+        bankrollBeforeMinor: bankroll,
+        bankrollAfterMinor: after,
+        roundNetMinor,
+        legs: entries,
+      });
+    }
+    replayed += 1;
     bankroll = after;
 
     if (roundNetMinor > 0) profit += 1;
@@ -378,9 +386,9 @@ export function runBacktest(
     rounds: results,
     summary: {
       currency: strategy.currency,
-      roundsAvailable: rounds.length,
-      roundsReplayed: results.length,
-      roundsNotReplayed: rounds.length - results.length,
+      roundsAvailable: count,
+      roundsReplayed: replayed,
+      roundsNotReplayed: count - replayed,
       stopReason,
       startingBankrollMinor: settings.startingBankrollMinor,
       endingBankrollMinor: bankroll,
@@ -391,7 +399,7 @@ export function runBacktest(
       roundsWithProfit: profit,
       roundsWithLoss: loss,
       roundsBreakEven: breakEven,
-      profitableRoundShare: results.length === 0 ? null : profit / results.length,
+      profitableRoundShare: replayed === 0 ? null : profit / replayed,
       peakBankrollMinor: peak,
       lowestBankrollMinor: lowest,
       maxDrawdownMinor,
@@ -399,6 +407,58 @@ export function runBacktest(
       longestLosingStreak,
       legs: legSummaries,
     },
+  };
+}
+
+function parseConfig(strategyInput: TwoLegStrategyConfig, settingsInput: SimulationSettings) {
+  const strategy = twoLegStrategyConfigSchema.parse(strategyInput);
+  const settings = simulationSettingsSchema.parse(settingsInput);
+  if (strategy.currency !== settings.currency) {
+    throw new RangeError('Strategy and settings must use the same currency');
+  }
+  return { strategy, settings };
+}
+
+export function runBacktest(
+  rounds: readonly BacktestRound[],
+  strategyInput: TwoLegStrategyConfig,
+  settingsInput: SimulationSettings,
+): BacktestResult {
+  const { strategy, settings } = parseConfig(strategyInput, settingsInput);
+  assertReplayableRounds(rounds);
+  const { rounds: replayed, summary } = replayCore(
+    rounds.length,
+    (index) => rounds[index]!.multiplierX100,
+    strategy,
+    settings,
+    true,
+  );
+  return {
+    rounds: replayed.map((r) => ({
+      ...r,
+      roundId: rounds[r.sequenceNo]!.roundId,
+      eventAt: rounds[r.sequenceNo]!.eventAt,
+    })),
+    summary,
+  };
+}
+
+/**
+ * Validates a configuration once and returns a function that replays a bare multiplier
+ * sequence through the same replay loop as runBacktest, returning only the summary (no
+ * per-round ledger). Used for resampled paths, which have no historical round identity.
+ */
+export function createSummaryReplayer(
+  strategyInput: TwoLegStrategyConfig,
+  settingsInput: SimulationSettings,
+): (multipliers: ArrayLike<number>) => BacktestSummary {
+  const { strategy, settings } = parseConfig(strategyInput, settingsInput);
+  return (multipliers) => {
+    if (multipliers.length > MAX_BACKTEST_ROUNDS) {
+      throw new RangeError(`A replay covers at most ${MAX_BACKTEST_ROUNDS} rounds`);
+    }
+    return replayCore(multipliers.length, (index) => multipliers[index]!, strategy, settings, false)
+      .summary;
   };
 }
 
@@ -515,7 +575,7 @@ export const backtestDatasetReportSchema = z.object({
   dataset: resolvedDatasetSchema,
   /** Non-synthetic rounds matching the filters, dated or not. */
   roundsMatching: z.number().int().min(0),
-  /** Matching rounds with an event time: these are replayed, in event-time order. */
+  /** Matching rounds with an event time: the replay order (a stop may end the replay early). */
   roundsEligible: z.number().int().min(0),
   excludedNoEventTime: z.number().int().min(0),
   excludedSynthetic: z.number().int().min(0),
@@ -589,7 +649,10 @@ export const simulationRunDtoSchema = z.object({
   datasetRequest: resolvedDatasetSchema,
   /** What the selection resolved to at run time; null if the run failed before that. */
   dataset: backtestDatasetReportSchema.nullable(),
-  /** SHA-256 of the ordered (roundId, multiplierX100, eventAt) list that was replayed. */
+  /**
+   * SHA-256 of the dataset's eligible rounds in replay order (source, then each round's id,
+   * source id, multiplier and event time), including rounds an early-stopped replay never reached.
+   */
   datasetSha256: z.string().nullable(),
   summary: backtestSummarySchema.nullable(),
 });
