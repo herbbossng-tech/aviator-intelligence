@@ -21,7 +21,13 @@ import { HttpError } from '../errors.js';
  * GET /api/analytics: descriptive statistics over the stored rounds matching the filters.
  * Read-only. The same data and filters always produce the same response.
  */
-export function analyticsRouter(db: Db): Router {
+export function analyticsRouter(
+  db: Db,
+  { maxRounds = MAX_ANALYTICS_ROUNDS }: { maxRounds?: number } = {},
+): Router {
+  if (!Number.isSafeInteger(maxRounds) || maxRounds < 0 || maxRounds > MAX_ANALYTICS_ROUNDS) {
+    throw new RangeError(`maxRounds must be an integer between 0 and ${MAX_ANALYTICS_ROUNDS}`);
+  }
   const router = Router();
 
   router.get('/analytics', (req, res) => {
@@ -30,7 +36,7 @@ export function analyticsRouter(db: Db): Router {
     // One read transaction so every count below describes the same snapshot of the data.
     const snapshot = db.transaction(() => {
       const coverage = getDatasetCoverage(db, filter);
-      if (coverage.rounds > MAX_ANALYTICS_ROUNDS) return { coverage, tooLarge: true as const };
+      if (coverage.rounds > maxRounds) return { coverage, tooLarge: true as const };
       return {
         coverage,
         tooLarge: false as const,
@@ -47,7 +53,7 @@ export function analyticsRouter(db: Db): Router {
       throw new HttpError(
         422,
         'dataset_too_large',
-        `The selection contains ${coverage.rounds} rounds; analytics supports up to ${MAX_ANALYTICS_ROUNDS}. Narrow the filters.`,
+        `The selection contains ${coverage.rounds} rounds; analytics supports up to ${maxRounds}. Narrow the filters.`,
       );
     }
     const { frequencies, synthetic, undated } = snapshot;

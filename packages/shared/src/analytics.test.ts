@@ -295,3 +295,59 @@ describe('analyticsQuerySchema', () => {
     expect(analyticsQuerySchema.safeParse(query).success).toBe(false);
   });
 });
+
+describe('cross-check against a naive sorted-array implementation', () => {
+  /** Deterministic PRNG (mulberry32) so failures are reproducible. */
+  function rng(seed: number): () => number {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  // Heavy-tailed synthetic values with many repeats and exact bin/threshold edges.
+  function sample(next: () => number, n: number): number[] {
+    const edges = [100, 101, 119, 120, 149, 150, 199, 200, 999, 1000, 9999, 10000];
+    return Array.from({ length: n }, () => {
+      const r = next();
+      if (r < 0.15) return 100;
+      if (r < 0.3) return edges[Math.floor(next() * edges.length)]!;
+      return Math.min(100_000_000, Math.max(100, Math.floor(100 / (1 - next() * 0.99))));
+    });
+  }
+
+  it.each([1, 2, 3, 7, 50, 999])('agrees for seed %i on random datasets', (seed) => {
+    const next = rng(seed);
+    for (let trial = 0; trial < 20; trial += 1) {
+      const n = 1 + Math.floor(next() * 400);
+      const values = sample(next, n).sort((a, b) => a - b);
+      const result = computeAnalytics(freq(values), {
+        thresholdsX100: [101, 120, 150, 200, 1000, 10000],
+      });
+
+      // Naive reference computed directly from the sorted raw values.
+      const nearest = (bps: number) => values[Math.max(1, Math.ceil((bps * n) / 10000 - 1e-9)) - 1];
+      expect(result.summary!.count).toBe(n);
+      expect(result.summary!.minX100).toBe(values[0]);
+      expect(result.summary!.maxX100).toBe(values[n - 1]);
+      expect(result.summary!.meanX100).toBeCloseTo(values.reduce((s, v) => s + v, 0) / n, 2);
+      expect(result.summary!.medianX100).toBe(nearest(5000));
+      for (const q of result.summary!.quantiles) expect(q.valueX100).toBe(nearest(q.levelBps));
+      for (const t of result.thresholds) {
+        expect(t.count).toBe(values.filter((v) => v >= t.thresholdX100).length);
+        expect(t.denominator).toBe(n);
+      }
+      for (const bin of result.histogram.bins) {
+        expect(bin.count).toBe(
+          values.filter((v) => v >= bin.lowerX100 && (bin.upperX100 === null || v < bin.upperX100))
+            .length,
+        );
+      }
+      expect(result.histogram.bins.reduce((s, b) => s + b.count, 0)).toBe(n);
+    }
+  });
+});

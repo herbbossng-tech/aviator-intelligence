@@ -33,6 +33,10 @@ function readFilters(params: URLSearchParams): AnalyticsFilters {
   return filters;
 }
 
+function draftFrom(filters: AnalyticsFilters): Draft {
+  return Object.fromEntries(FILTER_KEYS.map((k) => [k, filters[k] ?? ''])) as Draft;
+}
+
 export const INTERPRETATION_NOTE =
   'These figures describe the selected historical records. They do not predict the next multiplier or demonstrate that a strategy will be profitable.';
 
@@ -42,9 +46,14 @@ export function AnalyticsPage() {
   const key = params.toString();
   const state = useApi((signal) => api.analytics(filters, signal), [key]);
   const sources = useApi((signal) => api.roundSources(signal));
-  const [draft, setDraft] = useState<Draft>(
-    () => Object.fromEntries(FILTER_KEYS.map((k) => [k, filters[k] ?? ''])) as Draft,
-  );
+  const [draft, setDraft] = useState<Draft>(() => draftFrom(filters));
+  // When the URL's filters change from outside the form (nav link, back/forward), re-derive
+  // the inputs so they never show filters that are not actually applied to the results.
+  const [draftKey, setDraftKey] = useState(key);
+  if (draftKey !== key) {
+    setDraftKey(key);
+    setDraft(draftFrom(filters));
+  }
   const filtered = Object.keys(filters).length > 0;
 
   const apply = (event: FormEvent) => {
@@ -57,7 +66,7 @@ export function AnalyticsPage() {
     setParams(next);
   };
   const reset = () => {
-    setDraft(Object.fromEntries(FILTER_KEYS.map((k) => [k, ''])) as Draft);
+    setDraft(draftFrom({}));
     setParams(new URLSearchParams());
   };
   const field = (k: FilterKey) => ({

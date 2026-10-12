@@ -1,13 +1,18 @@
-import http from 'node:http';
+import http, { type Server } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import express from 'express';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   analyticsResponseSchema,
   apiErrorSchema,
   importPreviewResponseSchema,
+  MAX_ANALYTICS_ROUNDS,
   type AnalyticsResponse,
 } from '@aviator/shared';
 import type { Db } from '../src/db/connection.js';
 import { insertRound } from '../src/db/repositories/rounds.js';
+import { createErrorHandler } from '../src/http/errors.js';
+import { analyticsRouter } from '../src/http/routes/analytics.js';
 import { createTestDb, startTestServer } from './helpers.js';
 
 // SYNTHETIC TEST FIXTURES: invented rounds used only to exercise the analytics API.
@@ -204,5 +209,103 @@ describe('GET /api/analytics', () => {
   it('accepts only GET', async () => {
     const res = await fetch(`${server.baseUrl}/api/analytics`, { method: 'POST', body: '{}' });
     expect(res.status).toBe(404);
+  });
+});
+
+describe('GET /api/analytics edge cases', () => {
+  it.each([
+    '?source=a&source=b', // repeated parameters arrive as arrays
+    '?thresholds=1.5&thresholds=2',
+    '?thresholds=2,',
+    '?thresholds=2,,3',
+    '?source=',
+    '?source=%20',
+    '?minMultiplier=',
+    '?minMultiplier=1e3',
+    '?maxMultiplier=1000000.01',
+    '?importId=abc',
+    '?importId=1.5',
+    '?eventFrom=2026-01-01T00:00:00Z&eventTo=2026-01-01T00:00:00Z', // empty half-open range
+    '?eventFrom=2026-01-01T00:00:00.0001Z',
+  ])('rejects %s with 400 validation_error', async (query) => {
+    const res = await fetch(`${server.baseUrl}/api/analytics${query}`);
+    expect(res.status).toBe(400);
+    expect(apiErrorSchema.parse(await res.json()).error.code).toBe('validation_error');
+  });
+
+  it('treats SQL-looking input as a literal source label', async () => {
+    seed([{ m: 200, source: 'synthetic-a' }]);
+    const body = await analytics(`?source=${encodeURIComponent("synthetic-a' OR 1=1--")}`);
+    expect(body.dataset.roundsIncluded).toBe(0);
+    expect(body.dataset.filters.source).toBe("synthetic-a' OR 1=1--");
+    expect((await analytics()).dataset.roundsIncluded).toBe(1);
+  });
+
+  it('scopes exclusion counts to the other filters', async () => {
+    seed([
+      { m: 150, source: 'synthetic-a' }, // undated, source a -> excluded by the date filter
+      { m: 200, source: 'synthetic-b' }, // undated, other source -> not counted
+      { m: 300, source: 'synthetic-a', eventAt: '2026-01-01T00:00:00.000Z' },
+      { m: 400, source: 'synthetic-b', eventAt: '2026-01-01T00:00:00.000Z' },
+      { m: 900, source: 'synthetic-a', synthetic: true }, // undated synthetic: outside any date range
+    ]);
+    const dated = await analytics('?source=synthetic-a&eventFrom=2026-01-01T00:00:00Z');
+    expect(dated.dataset.roundsIncluded).toBe(1);
+    expect(dated.dataset.exclusions).toEqual([
+      expect.objectContaining({ reason: 'no_event_time_with_date_filter', count: 1 }),
+    ]);
+    const bySource = await analytics('?source=synthetic-a&minMultiplier=2');
+    expect(bySource.dataset.roundsIncluded).toBe(1);
+    expect(bySource.dataset.exclusions).toEqual([
+      expect.objectContaining({ reason: 'synthetic_test_fixture', count: 1 }),
+    ]);
+    const unknownImport = await analytics('?importId=99999');
+    expect(unknownImport.dataset).toMatchObject({ roundsIncluded: 0, exclusions: [] });
+  });
+
+  it('allows a 1.00x threshold, which every round meets', async () => {
+    seed([{ m: 100 }, { m: 250 }]);
+    const body = await analytics('?thresholds=1');
+    expect(body.thresholds).toEqual([
+      {
+        thresholdX100: 100,
+        count: 2,
+        denominator: 2,
+        proportion: 1,
+        ci95: expect.objectContaining({ upper: 1 }),
+      },
+    ]);
+  });
+});
+
+describe('analytics size limit', () => {
+  async function withLimit(maxRounds: number) {
+    const app = express();
+    app.use('/api', analyticsRouter(db, { maxRounds }));
+    app.use(createErrorHandler(() => {}));
+    const srv = await new Promise<Server>((resolve) => {
+      const s = app.listen(0, '127.0.0.1', () => resolve(s));
+    });
+    const { port } = srv.address() as AddressInfo;
+    return { url: `http://127.0.0.1:${port}`, close: () => new Promise((r) => srv.close(r)) };
+  }
+
+  it('returns 422 dataset_too_large when the selection exceeds the limit, and succeeds at the limit', async () => {
+    seed([{ m: 100 }, { m: 200 }, { m: 300 }]);
+    const limited = await withLimit(2);
+    try {
+      const over = await fetch(`${limited.url}/api/analytics`);
+      expect(over.status).toBe(422);
+      expect(apiErrorSchema.parse(await over.json()).error.code).toBe('dataset_too_large');
+      const narrowed = await fetch(`${limited.url}/api/analytics?minMultiplier=2`);
+      expect(narrowed.status).toBe(200);
+      expect(analyticsResponseSchema.parse(await narrowed.json()).dataset.roundsIncluded).toBe(2);
+    } finally {
+      await limited.close();
+    }
+  });
+
+  it('refuses a limit above the analytics maximum', () => {
+    expect(() => analyticsRouter(db, { maxRounds: MAX_ANALYTICS_ROUNDS + 1 })).toThrow(RangeError);
   });
 });

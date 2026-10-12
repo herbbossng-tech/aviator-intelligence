@@ -232,3 +232,29 @@ describe('Analytics page', () => {
     expect(alerts.some((a) => /not reachable/.test(a.textContent ?? ''))).toBe(true);
   });
 });
+
+describe('Analytics filter inputs', () => {
+  it('re-sync with the URL when filters change outside the form (no stale inputs)', async () => {
+    const calls = stub(() => ok(response([])));
+    renderAt('/analytics?minMultiplier=2&source=synthetic-ui');
+    await screen.findByText('No rounds match these filters');
+    expect((screen.getByLabelText(/^Min multiplier/) as HTMLInputElement).value).toBe('2');
+    fireEvent.click(
+      within(screen.getByRole('navigation', { name: 'Primary' })).getByRole('link', {
+        name: 'Analytics',
+      }),
+    );
+    expect(await screen.findByText('No rounds recorded yet')).toBeTruthy();
+    expect((screen.getByLabelText(/^Min multiplier/) as HTMLInputElement).value).toBe('');
+    expect((screen.getByLabelText(/^Source/) as HTMLSelectElement).value).toBe('');
+    expect(calls.filter((c) => c.pathname === '/api/analytics').at(-1)!.search).toBe('');
+  });
+
+  it('keeps typed but unapplied input while the URL is unchanged', async () => {
+    stub(() => ok(response([])));
+    renderAt('/analytics');
+    await screen.findByText('No rounds recorded yet');
+    fireEvent.change(screen.getByLabelText(/^Max multiplier/), { target: { value: '5' } });
+    expect((screen.getByLabelText(/^Max multiplier/) as HTMLInputElement).value).toBe('5');
+  });
+});
