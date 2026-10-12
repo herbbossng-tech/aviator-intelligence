@@ -96,7 +96,14 @@ function Analyses({ run }: { run: SimulationRunDto }) {
   const [loaded, setLoaded] = useState<SimulationAnalysesList>();
   if (list.status === 'success' && list.data !== loaded) setLoaded(list.data);
   const items = loaded?.items ?? [];
-  const selected = items.find((a) => a.id === selectedId) ?? items[0] ?? null;
+  // The analysis just created stays selected while the refreshed list loads (it is the
+  // server's own response), instead of falling back to the previous newest analysis.
+  const [created, setCreated] = useState<SimulationAnalysisDto | null>(null);
+  const selected =
+    items.find((a) => a.id === selectedId) ??
+    (created !== null && created.id === selectedId ? created : null) ??
+    items[0] ??
+    null;
 
   return (
     <div className="space-y-6">
@@ -107,6 +114,7 @@ function Analyses({ run }: { run: SimulationRunDto }) {
           run={run}
           maxPaths={loaded.maxPaths}
           onDone={(analysis) => {
+            setCreated(analysis);
             setSelectedId(analysis.id);
             setReload((n) => n + 1);
           }}
@@ -194,7 +202,10 @@ function SampleAndMethod({ run }: { run: SimulationRunDto }) {
   const money = (v: number) => formatMinorAmount(v, run.settings.currency);
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      <Panel title="Sample" subtitle="Exactly the rounds this run replayed">
+      <Panel
+        title="Sample"
+        subtitle="Every eligible round selected by this run's dataset, including any its historical replay did not reach"
+      >
         <Rows
           rows={[
             ['Source', report.dataset.source],
@@ -463,13 +474,13 @@ function Results({ run, analysis }: { run: SimulationRunDto; analysis: Simulatio
               },
               {
                 label: 'Max drawdown (amount)',
-                observed: money(run.summary!.maxDrawdownMinor),
+                observed: money(o.maxDrawdownMinor),
                 dist: s.maxDrawdownMinor,
                 format: money,
               },
               {
                 label: 'Rounds replayed',
-                observed: formatCount(run.summary!.roundsReplayed),
+                observed: formatCount(o.roundsReplayed),
                 dist: s.roundsReplayed,
                 format: formatCount,
               },
@@ -480,6 +491,10 @@ function Results({ run, analysis }: { run: SimulationRunDto; analysis: Simulatio
         <div className="grid gap-6 lg:grid-cols-2">
           <section aria-label="Net outcome of resampled paths">
             <h3 className="mb-2 text-sm font-medium text-slate-200">Net outcome of paths</h3>
+            <p className="mb-2 text-xs text-slate-500">
+              Shares of the {formatCount(n.denominator)} resampled paths under this model, not
+              chances of making money in future rounds.
+            </p>
             <Rows
               rows={[
                 ['Ended above the start (net > 0)', share(n.positive, n.denominator)],
@@ -489,7 +504,7 @@ function Results({ run, analysis }: { run: SimulationRunDto; analysis: Simulatio
                   'Observed run',
                   <span key="o" className="flex flex-wrap items-center gap-2">
                     <Badge kind="observed" />
-                    {formatSignedMinor(run.summary!.netProfitMinor, currency)}
+                    {formatSignedMinor(o.netProfitMinor, currency)}
                   </span>,
                 ],
                 ['Paths ending below the observed', share(o.pathsEndingBelow, o.denominator)],
@@ -518,16 +533,27 @@ function Results({ run, analysis }: { run: SimulationRunDto; analysis: Simulatio
               ]}
             />
             <p className="mt-2 text-xs text-slate-500">
-              The fraction of resampled paths that reached the configured virtual-bankroll boundary
-              under this bootstrap model. It is not a probability of real-world loss.
+              The fraction of resampled paths that ended because they reached the configured
+              virtual-bankroll boundary under this bootstrap model. It is not a probability of
+              real-world loss. Each path is counted under one stop only (see below), so a low count
+              does not mean paths never crossed that threshold.
             </p>
           </section>
         </div>
 
         <section aria-label="How paths ended">
           <h3 className="mb-2 text-sm font-medium text-slate-200">How paths ended</h3>
+          <p id="stop-precedence" className="mb-2 text-xs text-slate-500">
+            Each path is counted once, under the first stop the engine checks after a round: lower
+            bankroll stop, then upper stop, then drawdown stop. A path that breaches several
+            thresholds in the same round counts only under the first, so a zero for a later stop
+            does not mean no path crossed it.
+          </p>
           <div className="relative overflow-x-auto">
-            <table className="w-full min-w-[30rem] text-left text-sm">
+            <table
+              className="w-full min-w-[30rem] text-left text-sm"
+              aria-describedby="stop-precedence"
+            >
               <caption className="sr-only">Paths by stop reason</caption>
               <thead className="text-xs text-slate-500 uppercase">
                 <tr>

@@ -33,7 +33,8 @@ export const FAILED_ANALYSIS_MESSAGE =
   'The uncertainty analysis could not be completed. Nothing was stored.';
 
 /**
- * Resamples the exact sample a completed run replayed. The run's dataset is read again and
+ * Resamples the eligible rounds of a completed run's dataset (all of them, including any an
+ * early-stopped historical replay never reached). The run's dataset is read again and
  * its fingerprint must equal the run's stored fingerprint, so the "observed" result (the
  * run) and the resampled sample always describe the same data; otherwise 409.
  * Work limits are checked before any computation. Only a fully computed result is written,
@@ -70,7 +71,7 @@ export function runAndStoreAnalysis(
     throw new HttpError(
       409,
       'dataset_changed',
-      'The rounds this run selected have changed since it ran (its dataset fingerprint no longer matches), so they are not the sample the run replayed. Run a new backtest and analyse that instead.',
+      'The rounds this run selected have changed since it ran (its dataset fingerprint no longer matches), so they are no longer the dataset the run used. Run a new backtest and analyse that instead.',
       problem === null ? undefined : { problem },
     );
   }

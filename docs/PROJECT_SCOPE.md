@@ -88,7 +88,7 @@ Aviator Intelligence is a local-first research and simulation dashboard for the 
   - Strategy lab form with a dataset check and an assumptions review
   - Simulations list with side-by-side comparison of 2–4 runs
   - Run detail with summary, per-leg results, reproducibility hash, assumptions and ledger
-- **Reproducibility:** the stored configuration and dataset report, plus a SHA-256 of the replayed rounds.
+- **Reproducibility:** the stored configuration and dataset report, plus a SHA-256 of the dataset's eligible rounds in replay order.
 - **Docs:** [SIMULATION.md](SIMULATION.md).
 - **Deferred:**
   - risk of ruin for a single backtest (no defensible estimate from one historical path; see pass 5 for the narrowly defined model frequency)
@@ -112,7 +112,7 @@ Aviator Intelligence is a local-first research and simulation dashboard for the 
   - The sample must still match the run's dataset fingerprint (`409 dataset_changed` otherwise).
   - Limits are checked before computing: at most 2,000 paths and 1,000,000 replayed rounds per analysis.
   - Out-of-range results are refused rather than rounded.
-- **Persistence:** migration 004 (additive). Only completed analyses are stored, as single immutable rows tied to a completed run with the same fingerprint. Deleting a run cascades to them.
+- **Persistence:** migration 004 (additive). Only completed analyses are stored, as single rows that cannot be updated, tied to a completed run with the same fingerprint. Deleting a run cascades to them.
 - **API:** `POST` and `GET /api/simulations/:id/analyses`, and `GET /api/simulations/:id/analyses/:analysisId`.
 - **UI:** `/simulations/:id/uncertainty`, linked from each completed run.
 - **Docs:** [UNCERTAINTY.md](UNCERTAINTY.md).

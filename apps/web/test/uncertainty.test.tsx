@@ -284,3 +284,49 @@ describe('Uncertainty analysis page', () => {
     expect(link.getAttribute('href')).toBe('/simulations/7/uncertainty');
   });
 });
+
+describe('Uncertainty analysis page review regressions', () => {
+  it('keeps the new analysis selected while the refreshed list is still loading', async () => {
+    const run = makeRun(7);
+    const previous = makeAnalysis(run, 3, 300, 42);
+    const created = makeAnalysis(run, 5, 120, 99);
+    let listCalls = 0;
+    stub({
+      'GET /api/simulations/7': () => json(run),
+      'GET /api/simulations/7/analyses': () => {
+        listCalls += 1;
+        // The refresh after creating never resolves during this test.
+        return listCalls === 1 ? json(list([previous])) : new Promise<Response>(() => {});
+      },
+      'POST /api/simulations/7/analyses': () => json(created, 201),
+    });
+    renderAt('/simulations/7/uncertainty');
+    expect(await screen.findByText(/Resampled results · analysis #3/)).toBeTruthy();
+    fireEvent.change(screen.getByLabelText(/^Resampled paths/), { target: { value: '120' } });
+    fireEvent.change(screen.getByLabelText(/^Seed/), { target: { value: '99' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Run analysis' }));
+    expect(await screen.findByText(/Resampled results · analysis #5/)).toBeTruthy();
+    expect(listCalls).toBe(2); // the refresh is in flight
+    expect(screen.getByText(/120 paths × 8 draws · seed 99/)).toBeTruthy();
+    expect(screen.queryByText(/Resampled results · analysis #3/)).toBeNull();
+  });
+
+  it('explains stop precedence and that net-outcome shares describe model paths', async () => {
+    const run = makeRun(7);
+    stub({
+      'GET /api/simulations/7': () => json(run),
+      'GET /api/simulations/7/analyses': () => json(list([makeAnalysis(run, 3)])),
+    });
+    renderAt('/simulations/7/uncertainty');
+    const stops = await screen.findByRole('table', { name: 'Paths by stop reason' });
+    const note = document.getElementById(stops.getAttribute('aria-describedby')!)!;
+    expect(note.textContent).toMatch(/counted once, under the first stop/);
+    expect(note.textContent).toMatch(/does not mean no path crossed it/);
+    expect(
+      screen.getByText(/resampled paths under this model, not chances of making money/),
+    ).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Sample' }).textContent).toMatch(
+      /including any its historical replay did not reach/,
+    );
+  });
+});

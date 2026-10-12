@@ -575,7 +575,7 @@ export const backtestDatasetReportSchema = z.object({
   dataset: resolvedDatasetSchema,
   /** Non-synthetic rounds matching the filters, dated or not. */
   roundsMatching: z.number().int().min(0),
-  /** Matching rounds with an event time: these are replayed, in event-time order. */
+  /** Matching rounds with an event time: the replay order (a stop may end the replay early). */
   roundsEligible: z.number().int().min(0),
   excludedNoEventTime: z.number().int().min(0),
   excludedSynthetic: z.number().int().min(0),
@@ -649,7 +649,10 @@ export const simulationRunDtoSchema = z.object({
   datasetRequest: resolvedDatasetSchema,
   /** What the selection resolved to at run time; null if the run failed before that. */
   dataset: backtestDatasetReportSchema.nullable(),
-  /** SHA-256 of the ordered (roundId, multiplierX100, eventAt) list that was replayed. */
+  /**
+   * SHA-256 of the dataset's eligible rounds in replay order (source, then each round's id,
+   * source id, multiplier and event time), including rounds an early-stopped replay never reached.
+   */
   datasetSha256: z.string().nullable(),
   summary: backtestSummarySchema.nullable(),
 });

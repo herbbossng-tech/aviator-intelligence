@@ -245,7 +245,8 @@ function RunView({ run }: { run: SimulationRunDto }) {
           )}
           {run.datasetSha256 ? (
             <p className="mt-4 text-xs break-all text-slate-500">
-              SHA-256 of the replayed rounds (id, multiplier, event time, in order):{' '}
+              SHA-256 of the dataset's eligible rounds in replay order (source, then each round's
+              id, source id, multiplier and event time), whether or not the replay reached them:{' '}
               <span className="font-mono text-slate-300">{run.datasetSha256}</span>. Re-running the
               same configuration on the same rounds gives the same hash and results.
             </p>

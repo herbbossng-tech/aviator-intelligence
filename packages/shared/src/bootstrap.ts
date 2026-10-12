@@ -245,10 +245,16 @@ export const bootstrapSummarySchema = z.object({
     lowerBankrollStop: countWithDenominator.extend({ thresholdMinor: z.number().int() }).nullable(),
     maxDrawdownStop: countWithDenominator.extend({ thresholdBps: z.number().int() }).nullable(),
   }),
-  /** Where the observed historical run sits among the resampled paths. */
+  /**
+   * Snapshot of the observed historical run at analysis time (every observed figure the
+   * results show comes from here, not from the live run), and where it sits among the paths.
+   */
   observed: z.object({
     endingBankrollMinor: z.number().int(),
+    netProfitMinor: z.number().int(),
     maxDrawdownFraction: z.number(),
+    maxDrawdownMinor: z.number().int(),
+    roundsReplayed: z.number().int(),
     stopReason: z.enum(STOP_REASONS),
     pathsEndingBelow: z.number().int().min(0),
     pathsEndingEqual: z.number().int().min(0),
@@ -271,7 +277,15 @@ export function runBootstrap(
   strategy: TwoLegStrategyConfig,
   settings: SimulationSettings,
   options: BootstrapOptions,
-  observed: Pick<BacktestSummary, 'endingBankrollMinor' | 'maxDrawdownFraction' | 'stopReason'>,
+  observed: Pick<
+    BacktestSummary,
+    | 'endingBankrollMinor'
+    | 'netProfitMinor'
+    | 'maxDrawdownFraction'
+    | 'maxDrawdownMinor'
+    | 'roundsReplayed'
+    | 'stopReason'
+  >,
 ): BootstrapSummary {
   const { paths, seed } = analysisSettingsSchema.parse(options);
   const n = sample.length;
@@ -386,7 +400,10 @@ export function runBootstrap(
     },
     observed: {
       endingBankrollMinor: observed.endingBankrollMinor,
+      netProfitMinor: observed.netProfitMinor,
       maxDrawdownFraction: observed.maxDrawdownFraction,
+      maxDrawdownMinor: observed.maxDrawdownMinor,
+      roundsReplayed: observed.roundsReplayed,
       stopReason: observed.stopReason,
       pathsEndingBelow: below,
       pathsEndingEqual: equal,

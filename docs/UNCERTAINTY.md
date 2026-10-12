@@ -25,7 +25,7 @@ Pass 5 adds a sensitivity analysis to completed virtual backtests: how much woul
 
 **Input: one completed backtest run.** An analysis always belongs to a completed run.
 
-- **Sample.** The sample is the **n** multipliers of exactly the rounds that run replayed. It has the same single source, import and date range, and follows the same eligibility rules as the backtest:
+- **Sample.** The sample is the **n** multipliers of **every eligible round in the run's dataset**: the same rounds the run's fingerprint covers, with the same single source, import and date range and the same eligibility rules as the backtest. If the historical replay stopped early (for example, at a lower stop after 2 of 12 rounds), the sample still contains all 12; it is not limited to the rounds the replay reached. The eligibility rules are:
   - synthetic fixtures and undated rounds are excluded
   - duplicate or invalid event times are refused
 - **Fingerprint check.** The server reads the run's dataset again and recomputes its SHA-256 fingerprint. If it no longer matches the fingerprint stored with the run (for example, new rounds were imported into that source), the analysis is refused with `409 dataset_changed`, so the run and the resampled sample always describe the same data.
@@ -149,7 +149,7 @@ Migration 004 adds the `simulation_analyses` table. It is additive: earlier migr
 - **Only completed analyses are stored.** The result is computed in full, then written as one row. A failure at any point stores nothing (`500 analysis_failed`, details only in the server log).
 - **Triggers:**
   - an analysis can only be inserted for a **completed** run with the **same dataset fingerprint**
-  - rows are **immutable**
+  - rows **cannot be updated** (deleting an analysis is allowed and affects no other record)
 - **Deleting a run** cascades to its analyses.
 
 ## API

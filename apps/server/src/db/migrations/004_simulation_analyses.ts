@@ -6,8 +6,9 @@
  *   row, so a failed or interrupted analysis leaves nothing behind. status exists to make
  *   that explicit and is constrained to 'completed'.
  * - An analysis may only be attached to a completed run, and must carry that run's dataset
- *   fingerprint (the sample it resampled is exactly the data the run replayed).
- * - Rows are immutable. Deleting a run cascades to its analyses.
+ *   fingerprint (the sample it resampled is exactly the run's eligible dataset).
+ * - Rows cannot be updated (a trigger refuses UPDATE). They can be deleted, which leaves no
+ *   other record inconsistent; deleting a run cascades to its analyses.
  * - The seed, algorithm version, configuration snapshot and fingerprint make every row
  *   reproducible; per-path results are not stored (only aggregates), bounding row size.
  */

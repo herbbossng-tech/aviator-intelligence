@@ -97,7 +97,7 @@ export function DatasetReportView({ report }: { report: BacktestDatasetReport })
       'Event-time range',
       `${report.dataset.eventFrom ?? 'start'} → ${report.dataset.eventTo ?? 'end'} (from inclusive, to exclusive)`,
     ],
-    ['Rounds eligible (replayed in order)', formatCount(report.roundsEligible)],
+    ['Rounds eligible (in replay order)', formatCount(report.roundsEligible)],
     ['Excluded: no event time', formatCount(report.excludedNoEventTime)],
     ['Excluded: synthetic test fixtures', formatCount(report.excludedSynthetic)],
     ['Duplicate event times', formatCount(report.duplicateEventTimes)],

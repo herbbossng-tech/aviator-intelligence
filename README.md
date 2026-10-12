@@ -62,7 +62,7 @@ These figures describe historical records only; they do not predict the next mul
 - rounds without an event time and synthetic fixtures are excluded and counted; ambiguous ordering is refused
 - each run and its full ledger are stored in one transaction; failed runs are recorded as failed with no ledger
 - results include staked, returned (gross) and net, return on the starting bankroll, per-leg wins and losses with denominators, max drawdown, lowest bankroll and longest losing streak
-- a SHA-256 of the replayed rounds makes reruns verifiable
+- a SHA-256 of the dataset's eligible rounds (in replay order) makes reruns verifiable
 
 Backtests use virtual money only and do not predict future rounds. The method is in **[docs/SIMULATION.md](docs/SIMULATION.md)**.
 

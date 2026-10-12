@@ -145,7 +145,7 @@ Each run stores:
 
 - the exact strategy and settings
 - the dataset request and the resolved dataset report
-- `dataset_sha256`: SHA-256 over a canonical encoding of exactly what was replayed, in replay order:
+- `dataset_sha256`: SHA-256 over a canonical encoding of the dataset's eligible rounds, in replay order. It covers every eligible round, including any that an early-stopped replay never reached:
 
   ```
   aviator-intelligence/backtest-dataset/v1\n

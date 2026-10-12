@@ -452,3 +452,67 @@ describe('simulation_analyses integrity', () => {
     }
   });
 });
+
+describe('review regressions', () => {
+  it('resamples every eligible round of the dataset, even when the historical run stopped early', async () => {
+    // Two losing rounds take 1,000 to 600, below the lower stop of 700: the historical
+    // replay stops after 2 of 12 rounds. Round 9 (25.00x) is never reached historically.
+    const ms = [100, 100, 700, 990, 205, 340, 600, 150, 2_500, 120, 110, 101];
+    seedSeries(db, ms);
+    const base = backtestRequest();
+    const run = await createRun({
+      ...base,
+      settings: { ...base.settings, risk: { ...base.settings.risk, stopBelowBankrollMinor: 700 } },
+    });
+    expect(run.summary).toMatchObject({
+      roundsReplayed: 2,
+      roundsAvailable: 12,
+      stopReason: 'stop_below',
+    });
+    const analysis = await analyseOk(run.id, { paths: 300, seed: 11 });
+    expect(analysis.summary.sample).toEqual({
+      size: 12,
+      distinctMultipliers: new Set(ms).size,
+      minMultiplierX100: 100,
+      maxMultiplierX100: 2_500,
+    });
+    expect(analysis.summary.pathLength).toBe(12);
+    // Exactly the engine's result for the full eligible sample, not for the 2 rounds reached.
+    expect(analysis.summary).toEqual(
+      runBootstrap(ms, run.strategy, run.settings, { paths: 300, seed: 11 }, run.summary!),
+    );
+    expect(analysis.summary).not.toEqual(
+      runBootstrap(
+        ms.slice(0, 2),
+        run.strategy,
+        run.settings,
+        { paths: 300, seed: 11 },
+        run.summary!,
+      ),
+    );
+    // The observed snapshot is stored with the analysis.
+    expect(analysis.summary.observed).toMatchObject({
+      endingBankrollMinor: 600,
+      netProfitMinor: -400,
+      roundsReplayed: 2,
+      maxDrawdownMinor: run.summary!.maxDrawdownMinor,
+      stopReason: 'stop_below',
+    });
+  });
+
+  it.each([
+    ['a changed multiplier', 'UPDATE rounds SET multiplier_x100 = 333 WHERE id = 3'],
+    [
+      'a changed event time',
+      `UPDATE rounds SET event_at = '2026-01-01T00:00:02.500Z' WHERE id = 3`,
+    ],
+  ])('refuses as dataset_changed after %s, storing nothing', async (_name, sql) => {
+    seedSeries(db, MULTIPLIERS);
+    const run = await createRun();
+    db.prepare(sql).run();
+    const res = await analyse(run.id, { paths: 20, seed: 1 });
+    expect(res.status).toBe(409);
+    expect(apiErrorSchema.parse(await res.json()).error.code).toBe('dataset_changed');
+    expect(count('simulation_analyses')).toBe(0);
+  });
+});
