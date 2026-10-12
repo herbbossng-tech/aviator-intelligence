@@ -9,8 +9,8 @@ import { MULTIPLIER_SCALE, roundMultiplierX100Schema } from './multiplier.js';
 import type { LegConfig } from './legs.js';
 
 /**
- * Simulation configuration types. The simulation ENGINE is not implemented yet; these
- * schemas define and validate what a future run will accept, and how runs are stored.
+ * Simulation configuration types, used by the backtest engine in backtest.ts. These
+ * schemas define and validate what a run accepts and how runs are stored.
  * All risk settings apply to VIRTUAL bankrolls only and control nothing outside this app.
  */
 export const simulationRiskSettingsSchema = z
@@ -109,11 +109,13 @@ export function settleLeg(
     throw new RangeError('Stake must be a positive integer amount in minor units');
   }
   if (roundMultiplierX100 >= leg.cashoutTargetX100) {
-    const product = leg.stakeMinor * leg.cashoutTargetX100;
-    if (!Number.isSafeInteger(product)) {
-      throw new RangeError('Stake x target exceeds safe integer range');
+    // Exact integer arithmetic: stake x target can exceed 2^53 even when the return does not.
+    const gross =
+      (BigInt(leg.stakeMinor) * BigInt(leg.cashoutTargetX100)) / BigInt(MULTIPLIER_SCALE);
+    if (gross > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw new RangeError('The gross return exceeds the exactly representable integer range');
     }
-    const grossReturnMinor = Math.floor(product / MULTIPLIER_SCALE);
+    const grossReturnMinor = Number(gross);
     return { result: 'win', grossReturnMinor, netMinor: grossReturnMinor - leg.stakeMinor };
   }
   return { result: 'loss', grossReturnMinor: 0, netMinor: -leg.stakeMinor };

@@ -63,26 +63,6 @@ describe('Overview page', () => {
   });
 });
 
-describe('Strategy lab page', () => {
-  it('labels the example configuration as a sample, not a recommendation', () => {
-    stubApi({ '/api/health': HEALTH_OK });
-    renderAt('/strategy-lab');
-    expect(screen.getByText('Sample configuration.')).toBeTruthy();
-    expect(screen.getByText(/not recommended stakes or targets/)).toBeTruthy();
-    expect(screen.getByText('2.00x')).toBeTruthy();
-    expect(screen.getByText('6.00x')).toBeTruthy();
-    expect(screen.getAllByText('₦500.00')).toHaveLength(2);
-  });
-});
-
-describe('Simulations page', () => {
-  it('states that the engine is not implemented', () => {
-    stubApi({ '/api/health': HEALTH_OK });
-    renderAt('/simulations');
-    expect(screen.getByText('The simulation engine is not implemented yet')).toBeTruthy();
-  });
-});
-
 describe('Overview provenance wording', () => {
   it('describes the latest timestamp as when data was added, not when a round happened', async () => {
     stubApi({

@@ -2,17 +2,22 @@ import type { z } from 'zod';
 import {
   analyticsResponseSchema,
   apiErrorSchema,
+  backtestDatasetReportSchema,
   healthResponseSchema,
   importConfirmResponseSchema,
   importDtoSchema,
   importPreviewResponseSchema,
   importsListResponseSchema,
+  ledgerResponseSchema,
   manualRoundResponseSchema,
   metaResponseSchema,
   overviewResponseSchema,
   roundSourcesResponseSchema,
   roundsListResponseSchema,
+  simulationRunDtoSchema,
+  simulationRunsListSchema,
   validationDetailSchema,
+  type BacktestRequestInput,
   type ImportFormat,
   type ValidationDetail,
 } from '@aviator/shared';
@@ -108,6 +113,13 @@ export interface AnalyticsFilters {
   thresholds?: string | undefined;
 }
 
+export interface SimulationDatasetInput {
+  source: string;
+  importId?: string | undefined;
+  eventFrom?: string | undefined;
+  eventTo?: string | undefined;
+}
+
 export interface ManualRoundInput {
   source: string;
   multiplier: string;
@@ -144,4 +156,19 @@ export const api = {
     const query = toQuery(filters);
     return getJson(`/api/analytics${query ? `?${query}` : ''}`, analyticsResponseSchema, signal);
   },
+  /** Dataset selection as raw text; the server validates and normalises it. */
+  simulationDataset: (dataset: SimulationDatasetInput, signal?: AbortSignal) =>
+    getJson(`/api/simulations/dataset?${toQuery(dataset)}`, backtestDatasetReportSchema, signal),
+  runBacktest: (input: BacktestRequestInput) =>
+    postJson('/api/simulations', simulationRunDtoSchema, input),
+  simulations: (limit: number, offset: number, signal?: AbortSignal) =>
+    getJson(`/api/simulations?${toQuery({ limit, offset })}`, simulationRunsListSchema, signal),
+  simulation: (id: number, signal?: AbortSignal) =>
+    getJson(`/api/simulations/${id}`, simulationRunDtoSchema, signal),
+  simulationLedger: (id: number, limit: number, offset: number, signal?: AbortSignal) =>
+    getJson(
+      `/api/simulations/${id}/ledger?${toQuery({ limit, offset })}`,
+      ledgerResponseSchema,
+      signal,
+    ),
 };

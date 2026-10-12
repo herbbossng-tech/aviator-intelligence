@@ -32,7 +32,7 @@ Aviator Intelligence is a local-first research and simulation dashboard for the 
 - `settleLeg`: a deterministic, unit-tested accounting rule for one leg against one round.
 - Read-only local API: `GET /api/health`, `/api/meta`, `/api/overview`, `/api/rounds`.
 - Dashboard shell:
-  - overview, round history, strategy lab (sample configuration, clearly labelled), simulations, data sources, and methodology pages
+  - overview, round history, strategy lab (sample configuration, clearly labelled; replaced by the backtest form in pass 4), simulations, data sources, and methodology pages
   - honest empty and error states
   - a visible research/simulation-mode badge
 
@@ -68,15 +68,41 @@ Aviator Intelligence is a local-first research and simulation dashboard for the 
 - **Docs:** [ANALYTICS.md](ANALYTICS.md) documents every definition, method, edge case and limitation.
 - **Deferred:** rolling-window summaries, because there is no trustworthy ordering for rounds without event times or across sources. See ANALYTICS.md.
 
+## Implemented in pass 4: virtual simulation and historical backtesting
+
+- **Engine** (`packages/shared/src/backtest.ts`): a pure, deterministic `runBacktest` over ordered rounds.
+  - Each enabled leg is settled with `settleLeg`.
+  - All money is integer minor units.
+  - Policies for an insufficient bankroll: skip the leg, or stop the run.
+  - Virtual stops: lower and upper bankroll stops, max drawdown in basis points, max rounds.
+  - Reconciliation check: net = returned − staked.
+- **Dataset rules:**
+  - one source is required, optionally narrowed by import and event-time range
+  - replay is by event time
+  - undated rounds and synthetic fixtures are excluded and counted
+  - duplicate or non-canonical event times are refused as unreliable
+  - multiplier filters are not offered (look-ahead)
+- **Persistence:** migration 003 (additive). Each run and its full ledger are written in one transaction. Other failures roll back and record a `failed` run with no ledger. Historical rounds are only read.
+- **API:** dataset report, run, list, detail and paginated ledger (`/api/simulations…`).
+- **UI:**
+  - Strategy lab form with a dataset check and an assumptions review
+  - Simulations list with side-by-side comparison of 2–4 runs
+  - Run detail with summary, per-leg results, reproducibility hash, assumptions and ledger
+- **Reproducibility:** the stored configuration and dataset report, plus a SHA-256 of the replayed rounds.
+- **Docs:** [SIMULATION.md](SIMULATION.md).
+- **Deferred:**
+  - risk of ruin (no defensible estimate from one historical path)
+  - resampling and uncertainty intervals for backtests
+  - stored, named strategies (the `strategies` table is still unused; each run snapshots its configuration)
+
 ## Planned for later phases
 
 Each phase needs separate approval.
 
 - **Data:** editing or deleting stored rounds and imports (currently there is no delete or undo); exporting rounds.
 - **Analysis:** rolling-window summaries, once a trustworthy within-source ordering is defined; per-source comparisons.
-- **Strategy lab:** create, edit and store two-leg strategies (config validated by the shared schema).
-- **Simulation engine:** reproducible backtests over a selected dataset, persistent virtual ledger, virtual risk stops (stop-loss, take-profit, max drawdown, max rounds), and seeded resampling (e.g. bootstrap) for uncertainty.
-- **Comparison:** side-by-side metrics for configurations, always with variance, drawdown, risk of ruin and uncertainty intervals.
+- **Strategy lab:** save and name two-leg strategies for reuse.
+- **Simulation uncertainty:** seeded resampling (e.g. block bootstrap) with stated assumptions, which could support uncertainty intervals and a defensible risk-of-ruin estimate.
 - **Testing:** Playwright end-to-end tests of the dashboard itself.
 - **Operations:** a combined production server for the built dashboard; backup/export tooling; an optional PostgreSQL migration path. The data access is already isolated in repository modules.
 

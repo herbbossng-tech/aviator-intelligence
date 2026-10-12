@@ -8,6 +8,7 @@ import { analyticsRouter } from './routes/analytics.js';
 import { dataRouter } from './routes/data.js';
 import { importsRouter } from './routes/imports.js';
 import { roundsRouter } from './routes/rounds.js';
+import { simulationsRouter } from './routes/simulations.js';
 import { systemRouter } from './routes/system.js';
 
 export interface AppDependencies {
@@ -49,6 +50,7 @@ export function createApp({
   app.use('/api', roundsRouter(db, log));
   app.use('/api', importsRouter(db, previewStore, log));
   app.use('/api', analyticsRouter(db));
+  app.use('/api', simulationsRouter(db, { log }));
 
   app.use(notFoundHandler);
   app.use(createErrorHandler(log));

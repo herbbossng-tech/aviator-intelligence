@@ -36,3 +36,18 @@ export function formatMinorAmount(amountMinor: number, currency: CurrencyCode): 
   const minor = (absolute % divisor).toString().padStart(minorUnits, '0');
   return `${sign}${symbol}${major}.${minor}`;
 }
+
+/**
+ * Parses a major-unit amount typed by a user ("500", "500.5", "1,250.00") into exact integer
+ * minor units without floating point. Rejects negatives, exponents, more decimals than the
+ * currency has, and values above MAX_MINOR_AMOUNT. Returns null for invalid input.
+ */
+export function parseMajorAmountToMinor(text: string, currency: CurrencyCode): number | null {
+  const { minorUnits } = SUPPORTED_CURRENCIES[currency];
+  const cleaned = text.trim().replace(/,(?=\d{3}(\D|$))/g, '');
+  const match = new RegExp(`^(\\d{1,13})(?:\\.(\\d{1,${minorUnits}}))?$`).exec(cleaned);
+  if (!match) return null;
+  const minor =
+    Number(match[1]) * 10 ** minorUnits + Number((match[2] ?? '').padEnd(minorUnits, '0') || '0');
+  return Number.isSafeInteger(minor) && minor <= MAX_MINOR_AMOUNT ? minor : null;
+}

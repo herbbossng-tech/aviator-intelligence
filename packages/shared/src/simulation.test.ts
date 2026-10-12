@@ -45,6 +45,27 @@ describe('settleLeg', () => {
     expect(settleLeg({ stakeMinor: 333, cashoutTargetX100: 155 }, 300).grossReturnMinor).toBe(516);
   });
 
+  it('settles exactly when stake x target exceeds 2^53 but the return itself is safe', () => {
+    // 10^12 * 500_000 = 5e17 (> MAX_SAFE_INTEGER); gross = 5e15 minor units, exactly.
+    expect(settleLeg({ stakeMinor: 1e12, cashoutTargetX100: 500_000 }, 500_000)).toEqual({
+      result: 'win',
+      grossReturnMinor: 5e15,
+      netMinor: 5e15 - 1e12,
+    });
+    // Odd values: floor((10^12 - 1) * 333_333 / 100) computed exactly.
+    const exact = (999_999_999_999n * 333_333n) / 100n;
+    expect(
+      settleLeg({ stakeMinor: 999_999_999_999, cashoutTargetX100: 333_333 }, 400_000)
+        .grossReturnMinor,
+    ).toBe(Number(exact));
+  });
+
+  it('refuses a return that cannot be represented exactly', () => {
+    expect(() =>
+      settleLeg({ stakeMinor: 1e12, cashoutTargetX100: 100_000_000 }, 100_000_000),
+    ).toThrow(RangeError);
+  });
+
   it('rejects invalid round multipliers and stakes', () => {
     expect(() => settleLeg(leg, 99)).toThrow();
     expect(() => settleLeg(leg, 150.5)).toThrow();
