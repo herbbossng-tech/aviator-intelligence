@@ -38,34 +38,68 @@ function escapeLike(text: string): string {
   return text.replace(/[\\%_]/g, (c) => `\\${c}`);
 }
 
+export interface RoundFilter {
+  source?: string | undefined;
+  /** Case-insensitive substring of source_round_id. */
+  q?: string | undefined;
+  importId?: number | undefined;
+  minMultiplier?: number | undefined;
+  maxMultiplier?: number | undefined;
+  /** Inclusive lower bound on event_at (normalised UTC ISO string). */
+  eventFrom?: string | undefined;
+  /** Exclusive upper bound on event_at (normalised UTC ISO string). */
+  eventTo?: string | undefined;
+}
+
+/**
+ * The single definition of how round filters map to SQL, shared by the round browser and
+ * analytics. Fragments are fixed strings; every value is bound as a parameter. event_at is
+ * stored as normalised UTC ISO-8601 text, so string comparison orders it correctly; rows
+ * without an event time never match an event-time bound.
+ */
+export function roundFilterSql(
+  filter: RoundFilter,
+  options: { synthetic?: 'exclude' | 'only' } = {},
+): { where: string; params: (string | number)[] } {
+  const where = [options.synthetic === 'only' ? 'is_synthetic = 1' : 'is_synthetic = 0'];
+  const params: (string | number)[] = [];
+  if (filter.source !== undefined) {
+    where.push('source = ?');
+    params.push(filter.source);
+  }
+  if (filter.q !== undefined) {
+    where.push("source_round_id LIKE ? ESCAPE '\\' COLLATE NOCASE");
+    params.push(`%${escapeLike(filter.q)}%`);
+  }
+  if (filter.importId !== undefined) {
+    where.push('import_id = ?');
+    params.push(filter.importId);
+  }
+  if (filter.minMultiplier !== undefined) {
+    where.push('multiplier_x100 >= ?');
+    params.push(filter.minMultiplier);
+  }
+  if (filter.maxMultiplier !== undefined) {
+    where.push('multiplier_x100 <= ?');
+    params.push(filter.maxMultiplier);
+  }
+  if (filter.eventFrom !== undefined) {
+    where.push('event_at >= ?');
+    params.push(filter.eventFrom);
+  }
+  if (filter.eventTo !== undefined) {
+    where.push('event_at < ?');
+    params.push(filter.eventTo);
+  }
+  return { where: where.join(' AND '), params };
+}
+
 /**
  * Lists non-synthetic rounds. Filters are combined from fixed SQL fragments; every
  * user-supplied value is bound as a parameter. Synthetic test fixtures are always excluded.
  */
 export function listRounds(db: Db, query: RoundsQuery): { items: RoundDto[]; total: number } {
-  const where = ['is_synthetic = 0'];
-  const params: (string | number)[] = [];
-  if (query.source !== undefined) {
-    where.push('source = ?');
-    params.push(query.source);
-  }
-  if (query.q !== undefined) {
-    where.push("source_round_id LIKE ? ESCAPE '\\' COLLATE NOCASE");
-    params.push(`%${escapeLike(query.q)}%`);
-  }
-  if (query.importId !== undefined) {
-    where.push('import_id = ?');
-    params.push(query.importId);
-  }
-  if (query.minMultiplier !== undefined) {
-    where.push('multiplier_x100 >= ?');
-    params.push(query.minMultiplier);
-  }
-  if (query.maxMultiplier !== undefined) {
-    where.push('multiplier_x100 <= ?');
-    params.push(query.maxMultiplier);
-  }
-  const whereSql = where.join(' AND ');
+  const { where: whereSql, params } = roundFilterSql(query);
   const rows = db
     .prepare(
       `SELECT ${ROUND_COLUMNS} FROM rounds WHERE ${whereSql} ORDER BY ${ORDER_BY[query.sort]} LIMIT ? OFFSET ?`,

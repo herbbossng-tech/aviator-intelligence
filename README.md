@@ -11,23 +11,23 @@ A local-first web dashboard for **researching** the crash-style game Aviator. It
 
 ## Current status
 
-Foundation pass 1 and **pass 2 (historical round data manager)** are implemented. See [docs/PROJECT_SCOPE.md](docs/PROJECT_SCOPE.md) for the full implemented / planned / excluded breakdown.
+Foundation pass 1, **pass 2 (historical round data manager)** and **pass 3 (historical analytics)** are implemented. See [docs/PROJECT_SCOPE.md](docs/PROJECT_SCOPE.md) for the full implemented / planned / excluded breakdown.
 
-| Area                                                                                                           | Status                                                                                           |
-| -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| npm workspace (shared / server / web), strict TypeScript                                                       | Done                                                                                             |
-| SQLite database, versioned migrations, initial domain schema                                                   | Done                                                                                             |
-| Validated two-leg strategy config and simulation settings (types only)                                         | Done                                                                                             |
-| Leg settlement accounting rule (`settleLeg`), unit-tested                                                      | Done                                                                                             |
-| Local API: health, meta, overview, rounds (read + manual entry), imports                                       | Done                                                                                             |
-| Dashboard shell with honest empty states                                                                       | Done                                                                                             |
-| Tests (Vitest + React Testing Library), ESLint, Prettier, CI workflow                                          | Done                                                                                             |
-| Round data manager: manual entry, CSV/JSON import with preview, duplicate detection, import history, filtering | Done (pass 2)                                                                                    |
-| Simulation engine, backtesting, ledger writes                                                                  | Planned                                                                                          |
-| Distribution analysis, charts (Recharts), uncertainty reporting                                                | Planned                                                                                          |
-| Playwright browser tests of the dashboard                                                                      | Planned                                                                                          |
-| Live observation                                                                                               | Out of scope until reviewed ([docs/LIVE_OBSERVATION_REVIEW.md](docs/LIVE_OBSERVATION_REVIEW.md)) |
-| Real-money execution / betting automation                                                                      | Excluded                                                                                         |
+| Area                                                                                                                      | Status                                                                                           |
+| ------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| npm workspace (shared / server / web), strict TypeScript                                                                  | Done                                                                                             |
+| SQLite database, versioned migrations, initial domain schema                                                              | Done                                                                                             |
+| Validated two-leg strategy config and simulation settings (types only)                                                    | Done                                                                                             |
+| Leg settlement accounting rule (`settleLeg`), unit-tested                                                                 | Done                                                                                             |
+| Local API: health, meta, overview, rounds (read + manual entry), imports                                                  | Done                                                                                             |
+| Dashboard shell with honest empty states                                                                                  | Done                                                                                             |
+| Tests (Vitest + React Testing Library), ESLint, Prettier, CI workflow                                                     | Done                                                                                             |
+| Round data manager: manual entry, CSV/JSON import with preview, duplicate detection, import history, filtering            | Done (pass 2)                                                                                    |
+| Simulation engine, backtesting, ledger writes                                                                             | Planned                                                                                          |
+| Historical analytics: summary, nearest-rank quantiles, P(M ≥ t) with 95% Wilson intervals, histogram, data-quality report | Done (pass 3)                                                                                    |
+| Playwright browser tests of the dashboard                                                                                 | Planned                                                                                          |
+| Live observation                                                                                                          | Out of scope until reviewed ([docs/LIVE_OBSERVATION_REVIEW.md](docs/LIVE_OBSERVATION_REVIEW.md)) |
+| Real-money execution / betting automation                                                                                 | Excluded                                                                                         |
 
 ## Round data
 
@@ -45,6 +45,16 @@ Both use the same validation:
 Imports are validated and previewed before anything is stored. They are committed in one transaction and recorded in the import history.
 
 Rounds with a source round ID are never stored twice for the same source, and existing rounds are never overwritten. Rounds without IDs are never silently deduplicated.
+
+**Analytics** (`/analytics`, `GET /api/analytics`) describe the stored rounds you select:
+
+- count, mean, median and quantiles
+- min and max
+- the observed share at or above chosen thresholds, each with its denominator and a 95% Wilson interval
+- a histogram of counts per multiplier bin
+- a data-quality report
+
+These figures describe historical records only; they do not predict the next multiplier or show that any strategy is profitable. Definitions and methods are in **[docs/ANALYTICS.md](docs/ANALYTICS.md)**.
 
 The full contract covers formats, limits, error codes and duplicate rules: **[docs/DATA_IMPORT.md](docs/DATA_IMPORT.md)**. Synthetic example files are in [docs/examples/](docs/examples/).
 

@@ -5,6 +5,7 @@ import { ResearchModeBadge } from './ResearchModeBadge';
 const NAV_ITEMS = [
   { to: '/', label: 'Overview', end: true },
   { to: '/rounds', label: 'Round history' },
+  { to: '/analytics', label: 'Analytics' },
   { to: '/strategy-lab', label: 'Strategy lab' },
   { to: '/simulations', label: 'Simulations' },
   { to: '/data-sources', label: 'Data sources' },

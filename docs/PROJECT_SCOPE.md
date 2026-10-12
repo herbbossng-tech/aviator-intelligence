@@ -56,12 +56,24 @@ Aviator Intelligence is a local-first research and simulation dashboard for the 
 - **Round browser** with filtering (source, ID search, multiplier range, import), sorting and pagination.
 - **Docs and examples:** [DATA_IMPORT.md](DATA_IMPORT.md) and synthetic example files in [examples/](examples/).
 
+## Implemented in pass 3: historical analytics
+
+- **Shared analytics module** (`packages/shared/src/analytics.ts`), framework-free and unit-tested:
+  - count, min, max and mean
+  - nearest-rank quantiles (p25, p50, p75, p90, p95, p99)
+  - empirical P(M ≥ t) for default or custom thresholds, with 95% Wilson score intervals
+  - a histogram with explicit lower-inclusive, upper-exclusive bins and an open-ended tail
+- **`GET /api/analytics`:** read-only, validated, and filterable by source, import, multiplier range and event-time range. It aggregates in SQLite, reports the denominator, coverage and exclusions explicitly, and never fabricates results.
+- **Analytics page:** filters, summary cards, an accessible bar chart with a table view, the threshold table with intervals, a data-quality panel and interpretation notes.
+- **Docs:** [ANALYTICS.md](ANALYTICS.md) documents every definition, method, edge case and limitation.
+- **Deferred:** rolling-window summaries, because there is no trustworthy ordering for rounds without event times or across sources. See ANALYTICS.md.
+
 ## Planned for later phases
 
 Each phase needs separate approval.
 
 - **Data:** editing or deleting stored rounds and imports (currently there is no delete or undo); exporting rounds.
-- **Analysis:** multiplier distribution analysis (empirical CDF, survival function P(M ≥ t), confidence intervals); Recharts visualisations.
+- **Analysis:** rolling-window summaries, once a trustworthy within-source ordering is defined; per-source comparisons.
 - **Strategy lab:** create, edit and store two-leg strategies (config validated by the shared schema).
 - **Simulation engine:** reproducible backtests over a selected dataset, persistent virtual ledger, virtual risk stops (stop-loss, take-profit, max drawdown, max rounds), and seeded resampling (e.g. bootstrap) for uncertainty.
 - **Comparison:** side-by-side metrics for configurations, always with variance, drawdown, risk of ruin and uncertainty intervals.

@@ -1,5 +1,6 @@
 import type { z } from 'zod';
 import {
+  analyticsResponseSchema,
   apiErrorSchema,
   healthResponseSchema,
   importConfirmResponseSchema,
@@ -97,6 +98,16 @@ function toQuery(params: object): string {
   return search.toString();
 }
 
+/** Raw text filters for GET /api/analytics; the server parses and validates them. */
+export interface AnalyticsFilters {
+  source?: string | undefined;
+  minMultiplier?: string | undefined;
+  maxMultiplier?: string | undefined;
+  eventFrom?: string | undefined;
+  eventTo?: string | undefined;
+  thresholds?: string | undefined;
+}
+
 export interface ManualRoundInput {
   source: string;
   multiplier: string;
@@ -129,4 +140,8 @@ export const api = {
     getJson(`/api/imports?${toQuery({ limit, offset })}`, importsListResponseSchema, signal),
   importDetail: (id: number, signal?: AbortSignal) =>
     getJson(`/api/imports/${id}`, importDtoSchema, signal),
+  analytics: (filters: AnalyticsFilters, signal?: AbortSignal) => {
+    const query = toQuery(filters);
+    return getJson(`/api/analytics${query ? `?${query}` : ''}`, analyticsResponseSchema, signal);
+  },
 };
