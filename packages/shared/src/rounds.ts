@@ -187,14 +187,10 @@ export function parseEventAtInput(value: unknown, now: Date): FieldResult<string
     calendar.getUTCFullYear() === year &&
     calendar.getUTCMonth() === month - 1 &&
     calendar.getUTCDate() === day;
-  if (
-    !validDate ||
-    hour > 23 ||
-    minute > 59 ||
-    second > 59 ||
-    offsetHours > 14 ||
-    offsetMinutes > 59
-  ) {
+  // UTC offsets run from -14:00 to +14:00 inclusive: at 14 hours the minutes must be 00.
+  const validOffset =
+    offsetMinutes <= 59 && (offsetHours < 14 || (offsetHours === 14 && offsetMinutes === 0));
+  if (!validDate || hour > 23 || minute > 59 || second > 59 || !validOffset) {
     return fail(
       'invalid_timestamp',
       field,

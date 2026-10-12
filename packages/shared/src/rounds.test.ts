@@ -104,6 +104,53 @@ describe('parseEventAtInput', () => {
     if (!result.ok) expect(result.issue.code).toBe('invalid_timestamp');
   });
 
+  describe('UTC offset boundaries (-14:00 to +14:00)', () => {
+    it.each([
+      ['2026-01-31T10:00:00Z', '2026-01-31T10:00:00.000Z'],
+      ['2026-01-31T10:00:00+14:00', '2026-01-30T20:00:00.000Z'],
+      ['2026-01-31T10:00:00-14:00', '2026-02-01T00:00:00.000Z'],
+      ['2026-01-31T10:00:00+13:59', '2026-01-30T20:01:00.000Z'],
+      ['2026-01-31T10:00:00-13:59', '2026-01-31T23:59:00.000Z'],
+      ['2026-01-31T10:00:00+01:00', '2026-01-31T09:00:00.000Z'],
+      ['2026-01-31T10:00:00-04:30', '2026-01-31T14:30:00.000Z'],
+      ['2026-01-31T10:00:00+00:00', '2026-01-31T10:00:00.000Z'],
+    ])('accepts %s as %s', (input, expected) => {
+      expect(parseEventAtInput(input, NOW)).toEqual({ ok: true, value: expected });
+    });
+
+    it.each([
+      '2026-01-31T10:00:00+14:01',
+      '2026-01-31T10:00:00+14:59',
+      '2026-01-31T10:00:00-14:01',
+      '2026-01-31T10:00:00-14:30',
+      '2026-01-31T10:00:00+15:00',
+      '2026-01-31T10:00:00-15:00',
+      '2026-01-31T10:00:00+13:60',
+      '2026-01-31T10:00:00+99:00',
+    ])('rejects %s', (input) => {
+      const result = parseEventAtInput(input, NOW);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.issue.code).toBe('invalid_timestamp');
+        expect(result.issue.message).toMatch(/not a valid date and time/);
+      }
+    });
+  });
+
+  it.each([
+    ['2026-06-01T12:05:00Z', true], // exactly at the 5-minute future tolerance
+    ['2026-06-01T12:05:00.001Z', false],
+    ['2000-01-01T00:00:00Z', true], // earliest accepted instant
+    ['1999-12-31T23:59:59.999Z', false],
+    ['2000-01-01T00:30:00+01:00', false], // 1999-12-31T23:30Z once normalised
+    ['0099-12-31T00:00:00Z', false], // Date.UTC maps years 0-99 to 1900-1999; still rejected
+    ['0000-01-01T00:00:00Z', false],
+    ['2026-01-31T23:59:60Z', false], // leap seconds are not accepted
+    ['2026-01-31T10:00:00.000000Z', false], // more than millisecond precision
+  ])('applies range and precision boundaries: %s -> %s', (input, accepted) => {
+    expect(parseEventAtInput(input, NOW).ok).toBe(accepted);
+  });
+
   it('rejects non-string timestamps', () => {
     expect(parseEventAtInput(1_700_000_000_000, NOW).ok).toBe(false);
   });
