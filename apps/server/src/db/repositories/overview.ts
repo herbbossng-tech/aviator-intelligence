@@ -16,7 +16,8 @@ export function getOverview(db: Db, currency: CurrencyCode): OverviewResponse {
       `SELECT COUNT(*) AS total,
               COALESCE(SUM(status = 'failed'), 0) AS failed,
               COALESCE(SUM(records_accepted), 0) AS recordsAccepted,
-              COALESCE(SUM(records_rejected), 0) AS recordsRejected
+              COALESCE(SUM(records_rejected), 0) AS recordsRejected,
+              COALESCE(SUM(records_duplicate), 0) AS recordsDuplicate
          FROM data_imports`,
     )
     .get() as OverviewResponse['imports'];

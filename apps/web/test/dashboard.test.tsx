@@ -82,3 +82,18 @@ describe('Simulations page', () => {
     expect(screen.getByText('The simulation engine is not implemented yet')).toBeTruthy();
   });
 });
+
+describe('Overview provenance wording', () => {
+  it('describes the latest timestamp as when data was added, not when a round happened', async () => {
+    stubApi({
+      '/api/health': HEALTH_OK,
+      '/api/overview': {
+        ...EMPTY_OVERVIEW,
+        rounds: { total: 3, distinctSources: 1, latestObservedAt: '2026-01-02T00:00:00.000Z' },
+      },
+      '/api/rounds': { items: [], total: 0, limit: 10, offset: 0 },
+    });
+    renderAt('/');
+    expect(await screen.findByText(/1 source\(s\) · last added to this app/)).toBeTruthy();
+  });
+});

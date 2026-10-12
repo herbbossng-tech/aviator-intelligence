@@ -12,7 +12,10 @@ export function Panel({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-slate-800 bg-slate-900/40" aria-label={title}>
+    <section
+      className="min-w-0 rounded-lg border border-slate-800 bg-slate-900/40"
+      aria-label={title}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-800 px-5 py-3">
         <div>
           <h2 className="text-sm font-medium text-slate-200">{title}</h2>

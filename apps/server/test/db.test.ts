@@ -7,7 +7,10 @@ import { getSchemaVersion, migrate } from '../src/db/migrate.js';
 import { MIGRATIONS } from '../src/db/migrations/index.js';
 import { insertRound, listRounds } from '../src/db/repositories/rounds.js';
 import { getOverview } from '../src/db/repositories/overview.js';
+import { roundsQuerySchema } from '@aviator/shared';
 import { createTestDb, SYNTHETIC_SOURCE } from './helpers.js';
+
+const pageOf = (limit: number, offset: number) => roundsQuerySchema.parse({ limit, offset });
 
 const NOW = '2026-01-01T00:00:00.000Z';
 const dbs: Db[] = [];
@@ -175,7 +178,7 @@ describe('repositories', () => {
     expect(getOverview(db, 'NGN')).toEqual({
       currency: 'NGN',
       rounds: { total: 0, distinctSources: 0, latestObservedAt: null },
-      imports: { total: 0, failed: 0, recordsAccepted: 0, recordsRejected: 0 },
+      imports: { total: 0, failed: 0, recordsAccepted: 0, recordsRejected: 0, recordsDuplicate: 0 },
       strategies: { total: 0 },
       simulations: { total: 0, completed: 0 },
       latestVirtualBankroll: null,
@@ -185,7 +188,7 @@ describe('repositories', () => {
   it('excludes synthetic fixtures from listings and aggregates', () => {
     const db = freshDb();
     insertRound(db, syntheticRound());
-    expect(listRounds(db, 10, 0)).toEqual({ items: [], total: 0 });
+    expect(listRounds(db, pageOf(10, 0))).toEqual({ items: [], total: 0 });
     expect(getOverview(db, 'NGN').rounds.total).toBe(0);
   });
 
@@ -208,10 +211,10 @@ describe('repositories', () => {
         multiplierX100: 340,
       }),
     );
-    const page = listRounds(db, 1, 0);
+    const page = listRounds(db, pageOf(1, 0));
     expect(page.total).toBe(2);
     expect(page.items).toHaveLength(1);
     expect(page.items[0]?.multiplierX100).toBe(340);
-    expect(listRounds(db, 1, 1).items[0]?.multiplierX100).toBe(120);
+    expect(listRounds(db, pageOf(1, 1)).items[0]?.multiplierX100).toBe(120);
   });
 });
