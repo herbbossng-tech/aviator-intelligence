@@ -36,6 +36,12 @@ function syntheticRound(overrides: Partial<Parameters<typeof insertRound>[1]> = 
   };
 }
 
+const COMPLETED_SUMMARY = {
+  summary_json: '{}',
+  stop_reason: 'completed_all_rounds',
+  dataset_sha256: 'a'.repeat(64),
+};
+
 function insertRun(db: Db, extra: Record<string, unknown> = {}) {
   const columns = {
     strategy_snapshot_json: '{}',
@@ -147,18 +153,49 @@ describe('schema constraints', () => {
   it('only allows summary fields on completed simulation runs', () => {
     const db = freshDb();
     expect(() => insertRun(db, { status: 'pending', ending_bankroll_minor: 5 })).toThrow(/CHECK/);
-    expect(() => insertRun(db, { status: 'completed' })).toThrow(/CHECK/);
-    insertRun(db, {
+    expect(() => insertRun(db, { status: 'completed' })).toThrow(/CHECK|summary is inconsistent/);
+    const completed = {
       status: 'completed',
       ending_bankroll_minor: 90_000,
       rounds_processed: 10,
       completed_at: NOW,
-    });
+    };
+    // Migration 003: a completed run must also carry a summary, stop reason and dataset hash.
+    expect(() => insertRun(db, completed)).toThrow(/summary is inconsistent/);
+    expect(() =>
+      insertRun(db, { status: 'failed', summary_json: '{}', stop_reason: 'max_rounds' }),
+    ).toThrow(/summary is inconsistent/);
+    expect(() =>
+      insertRun(db, { ...COMPLETED_SUMMARY, ...completed, stop_reason: 'lucky_streak' }),
+    ).toThrow(/CHECK/);
+    expect(() =>
+      insertRun(db, { ...COMPLETED_SUMMARY, ...completed, dataset_sha256: 'not-a-hash' }),
+    ).toThrow(/CHECK/);
+    insertRun(db, { ...COMPLETED_SUMMARY, ...completed });
+  });
+
+  it('only allows ledger entries on completed simulation runs', () => {
+    const db = freshDb();
+    const failed = insertRun(db, { status: 'failed' }).lastInsertRowid;
+    expect(() =>
+      db
+        .prepare(
+          `INSERT INTO ledger_entries (simulation_run_id, sequence_no, leg_key, stake_minor, cashout_target_x100, gross_return_minor, net_minor, result)
+           VALUES (?, 0, 'A', 500, 200, 0, -500, 'loss')`,
+        )
+        .run(failed),
+    ).toThrow(/completed simulation run/);
   });
 
   it('keeps ledger arithmetic consistent', () => {
     const db = freshDb();
-    const runId = insertRun(db).lastInsertRowid;
+    const runId = insertRun(db, {
+      ...COMPLETED_SUMMARY,
+      status: 'completed',
+      ending_bankroll_minor: 100_000,
+      rounds_processed: 1,
+      completed_at: NOW,
+    }).lastInsertRowid;
     const insert = db.prepare(
       `INSERT INTO ledger_entries (simulation_run_id, sequence_no, leg_key, stake_minor, cashout_target_x100, gross_return_minor, net_minor, result)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -168,7 +205,10 @@ describe('schema constraints', () => {
     expect(() => insert.run(runId, 1, 'C', 500, 200, 1000, 500, 'win')).toThrow(/CHECK/); // unknown leg
     expect(() => insert.run(runId, 1, 'A', 500, 200, 100, -400, 'loss')).toThrow(/CHECK/); // loss with return
     expect(() => insert.run(runId, 0, 'A', 500, 200, 1000, 500, 'win')).toThrow(/UNIQUE/); // duplicate slot
-    expect(() => insert.run(9999, 0, 'A', 500, 200, 1000, 500, 'win')).toThrow(/FOREIGN KEY/);
+    // A missing run is rejected (by the completed-run trigger, which fires before the FK check).
+    expect(() => insert.run(9999, 0, 'A', 500, 200, 1000, 500, 'win')).toThrow(
+      /completed simulation run|FOREIGN KEY/,
+    );
   });
 });
 

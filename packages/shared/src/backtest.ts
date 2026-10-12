@@ -450,13 +450,16 @@ export type BacktestRequest = z.infer<typeof backtestRequestSchema>;
 export const ORDERING_RULE =
   'Single source; rounds replayed by event time ascending. Rounds without an event time are excluded; duplicate event times make the order ambiguous and are rejected.';
 
+/** A dataset selection after validation (all optional fields resolved to null). */
+export const resolvedDatasetSchema = z.object({
+  source: z.string(),
+  importId: z.number().int().nullable(),
+  eventFrom: z.string().nullable(),
+  eventTo: z.string().nullable(),
+});
+
 export const backtestDatasetReportSchema = z.object({
-  dataset: z.object({
-    source: z.string(),
-    importId: z.number().int().nullable(),
-    eventFrom: z.string().nullable(),
-    eventTo: z.string().nullable(),
-  }),
+  dataset: resolvedDatasetSchema,
   /** Non-synthetic rounds matching the filters, dated or not. */
   roundsMatching: z.number().int().min(0),
   /** Matching rounds with an event time: these are replayed, in event-time order. */
@@ -523,7 +526,10 @@ export const simulationRunDtoSchema = z.object({
   errorMessage: z.string().nullable(),
   strategy: twoLegStrategyConfigSchema,
   settings: simulationSettingsSchema,
-  dataset: backtestDatasetReportSchema,
+  /** The dataset selection as requested. */
+  datasetRequest: resolvedDatasetSchema,
+  /** What the selection resolved to at run time; null if the run failed before that. */
+  dataset: backtestDatasetReportSchema.nullable(),
   /** SHA-256 of the ordered (roundId, multiplierX100, eventAt) list that was replayed. */
   datasetSha256: z.string().nullable(),
   summary: backtestSummarySchema.nullable(),

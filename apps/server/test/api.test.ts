@@ -100,11 +100,12 @@ describe('error handling', () => {
         headers: { 'Content-Type': 'application/json' },
         body: '{}',
       });
-    // Only POST /api/rounds, /api/imports/preview and /api/imports accept writes.
+    // Only POST /api/rounds, /api/imports/preview, /api/imports and /api/simulations accept writes.
     for (const path of [
       '/api/overview',
       '/api/strategies',
-      '/api/simulations',
+      '/api/simulations/1',
+      '/api/simulations/dataset',
       '/api/meta',
       '/api/sql',
     ]) {

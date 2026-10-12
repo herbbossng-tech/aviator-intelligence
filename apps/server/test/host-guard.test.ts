@@ -89,6 +89,11 @@ describe('loopback Host guard', () => {
     });
     expect(write.status).toBe(403);
     expect((db.prepare('SELECT COUNT(*) AS n FROM rounds').get() as { n: number }).n).toBe(0);
+    const simulate = await send(port, hostHeader, 'POST', '/api/simulations', {});
+    expect(simulate.status).toBe(403);
+    expect((db.prepare('SELECT COUNT(*) AS n FROM simulation_runs').get() as { n: number }).n).toBe(
+      0,
+    );
   });
 
   it.each(['127.0.0.1', '127.0.0.1:4317', 'localhost:5173', 'LOCALHOST:5173', '[::1]:4317'])(
