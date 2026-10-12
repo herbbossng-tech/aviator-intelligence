@@ -1,9 +1,12 @@
 import { Router } from 'express';
 import {
+  analysisRequestSchema,
+  analysesQuerySchema,
   backtestDatasetQuerySchema,
   backtestRequestSchema,
   ledgerQuerySchema,
   MAX_BACKTEST_ROUNDS,
+  maxPathsForSample,
   simulationRunsQuerySchema,
 } from '@aviator/shared';
 import { z } from 'zod';
@@ -14,6 +17,8 @@ import {
   getRun,
   listRuns,
 } from '../../db/repositories/simulations.js';
+import { getAnalysis, listAnalyses } from '../../db/repositories/analyses.js';
+import { runAndStoreAnalysis } from '../../simulations/analysis.js';
 import { runAndStoreBacktest } from '../../simulations/service.js';
 import { HttpError } from '../errors.js';
 
@@ -73,6 +78,32 @@ export function simulationsRouter(
     const query = ledgerQuerySchema.parse(req.query);
     const run = findRun(req.params.id);
     res.json(getLedgerPage(db, run, query));
+  });
+
+  // Uncertainty analyses (IID bootstrap) of a completed run. Virtual money only.
+  router.post('/simulations/:id/analyses', (req, res) => {
+    const run = findRun(req.params.id);
+    const settings = analysisRequestSchema.parse(req.body);
+    res.status(201).json(runAndStoreAnalysis(db, run, settings, { now, maxRounds, log }));
+  });
+
+  router.get('/simulations/:id/analyses', (req, res) => {
+    const query = analysesQuerySchema.parse(req.query);
+    const run = findRun(req.params.id);
+    const sampleSize = run.status === 'completed' ? (run.dataset?.roundsEligible ?? null) : null;
+    res.json({
+      ...listAnalyses(db, run.id, query),
+      maxPaths: sampleSize === null ? 0 : maxPathsForSample(sampleSize),
+      sampleSize,
+    });
+  });
+
+  router.get('/simulations/:id/analyses/:analysisId', (req, res) => {
+    const run = findRun(req.params.id);
+    const parsed = runIdSchema.safeParse(req.params.analysisId);
+    const analysis = parsed.success ? getAnalysis(db, run.id, parsed.data) : null;
+    if (!analysis) throw new HttpError(404, 'analysis_not_found', 'No such analysis for this run.');
+    res.json(analysis);
   });
 
   return router;

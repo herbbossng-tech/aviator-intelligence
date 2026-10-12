@@ -6,10 +6,15 @@
  */
 export class StoredDataError extends Error {
   constructor(
-    readonly record: { simulationRunId: number },
+    readonly record: { simulationRunId: number; simulationAnalysisId?: number },
     cause: unknown,
   ) {
-    super(`Stored simulation run ${record.simulationRunId} could not be read`, { cause });
+    super(
+      record.simulationAnalysisId === undefined
+        ? `Stored simulation run ${record.simulationRunId} could not be read`
+        : `Stored analysis ${record.simulationAnalysisId} of run ${record.simulationRunId} could not be read`,
+      { cause },
+    );
     this.name = 'StoredDataError';
   }
 }

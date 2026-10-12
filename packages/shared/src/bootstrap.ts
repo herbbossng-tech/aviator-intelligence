@@ -403,6 +403,13 @@ export function runBootstrap(
 
 export const analysisRequestSchema = analysisSettingsSchema;
 
+export const analysesQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(50).default(20),
+    offset: z.coerce.number().int().min(0).max(10_000_000).default(0),
+  })
+  .strict();
+
 export const simulationAnalysisDtoSchema = z.object({
   id: z.number().int(),
   simulationRunId: z.number().int(),

@@ -91,6 +91,11 @@ describe('loopback Host guard', () => {
     expect((db.prepare('SELECT COUNT(*) AS n FROM rounds').get() as { n: number }).n).toBe(0);
     const simulate = await send(port, hostHeader, 'POST', '/api/simulations', {});
     expect(simulate.status).toBe(403);
+    const analyse = await send(port, hostHeader, 'POST', '/api/simulations/1/analyses', {
+      paths: 10,
+      seed: 1,
+    });
+    expect(analyse.status).toBe(403);
     expect((db.prepare('SELECT COUNT(*) AS n FROM simulation_runs').get() as { n: number }).n).toBe(
       0,
     );
