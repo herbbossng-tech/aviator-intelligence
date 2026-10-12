@@ -66,7 +66,7 @@ The dashboard validates every response against the shared Zod schemas. A malform
 | `GET /api/imports`, `GET /api/imports/:id`                                            | Import history                                | Newest first                                                                                                                                                                                               |
 | `GET /api/analytics`                                                                  | Descriptive statistics of the selected rounds | Read-only; filters `source`, `importId`, `minMultiplier`, `maxMultiplier`, `eventFrom` (incl.), `eventTo` (excl.), `thresholds`; `422 dataset_too_large` above 5M rounds. See [ANALYTICS.md](ANALYTICS.md) |
 | `GET /api/simulations/dataset`                                                        | Backtest dataset report                       | Read-only; `source` (required), `importId`, `eventFrom`, `eventTo`; counts, exclusions, orderability. See [SIMULATION.md](SIMULATION.md)                                                                   |
-| `POST /api/simulations`                                                               | Run and store a virtual backtest              | One transaction; `201`; `400` validation; `422 dataset_not_replayable`; `500 simulation_failed` (a `failed` run is recorded, no ledger)                                                                    |
+| `POST /api/simulations`                                                               | Run and store a virtual backtest              | One transaction; `201`; `400` validation; `422 dataset_not_replayable` / `simulation_out_of_range`; `500 simulation_failed` (a `failed` run is recorded, no ledger)                                        |
 | `GET /api/simulations`, `GET /api/simulations/:id`, `GET /api/simulations/:id/ledger` | Stored runs and their ledgers                 | Newest first; ledger paginated by replayed round (`limit` ≤ 500)                                                                                                                                           |
 
 The full import contract, including limits and error codes, is in [DATA_IMPORT.md](DATA_IMPORT.md).
@@ -78,7 +78,7 @@ Errors always use the shape `{ "error": { "code", "message", "details?" } }`:
 - conflicts (409)
 - `payload_too_large`, `file_too_large` (413)
 - file-content errors (422)
-- `dataset_not_replayable` (422)
+- `dataset_not_replayable`, `simulation_out_of_range` (422)
 - `database_write_failed`, `simulation_failed`, `internal_error` (500, generic message; details are logged server-side only)
 
 The only write endpoints are manual round entry, import preview/confirm and running a virtual backtest (which writes only `simulation_runs` and `ledger_entries`; historical rounds are only read). They write only through fixed, parameterised statements: there are no generic table writes, no filesystem access, no URL fetching, no SQL passthrough and no debug routes.
@@ -129,7 +129,7 @@ Migration 002 (`round_imports`) is additive: it adds the `data_imports` columns,
 ## Numeric representation and rounding policy
 
 - **Money:** JavaScript integers in the currency's minor unit (kobo, cents), stored as SQLite `INTEGER`.
-  - A single amount is capped at 10¹² minor units, so products stay below `Number.MAX_SAFE_INTEGER`.
+  - A single amount is capped at 10¹² minor units. Settlement multiplies stake × target with BigInt, and backtest totals accumulate as BigInt; anything that would exceed `Number.MAX_SAFE_INTEGER` is refused rather than rounded.
   - Formatting splits integer and fractional parts without floating-point division.
 - **Multipliers:** integers scaled by 100 (`2.35x` → `235`), matching Aviator's two displayed decimals. Text with more than two decimals is **rejected**, not rounded, so imported data is never silently altered. Round multipliers must be ≥ 1.00x; cashout targets must be ≥ 1.01x.
 - **Settlement (`settleLeg`):**

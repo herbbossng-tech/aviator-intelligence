@@ -80,7 +80,7 @@ Aviator Intelligence is a local-first research and simulation dashboard for the 
   - one source is required, optionally narrowed by import and event-time range
   - replay is by event time
   - undated rounds and synthetic fixtures are excluded and counted
-  - duplicate event times are refused as ambiguous
+  - duplicate or non-canonical event times are refused as unreliable
   - multiplier filters are not offered (look-ahead)
 - **Persistence:** migration 003 (additive). Each run and its full ledger are written in one transaction. Other failures roll back and record a `failed` run with no ledger. Historical rounds are only read.
 - **API:** dataset report, run, list, detail and paginated ledger (`/api/simulations…`).
