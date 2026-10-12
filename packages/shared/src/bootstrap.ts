@@ -34,7 +34,7 @@ export const BOOTSTRAP_ALGORITHM_VERSION = 'iid-bootstrap/xoshiro128ss-fmix32/v1
 export const MAX_ANALYSIS_PATHS = 2_000;
 export const DEFAULT_ANALYSIS_PATHS = 500;
 /** Upper bound on paths x path length (replayed rounds), checked before any computation. */
-export const MAX_ANALYSIS_ROUND_STEPS = 2_000_000;
+export const MAX_ANALYSIS_ROUND_STEPS = 1_000_000;
 /** Below this many observed rounds the result carries a small-sample warning. */
 export const SMALL_SAMPLE_ROUNDS = 100;
 /** Below this many paths the outer quantiles are coarse; the result carries a warning. */

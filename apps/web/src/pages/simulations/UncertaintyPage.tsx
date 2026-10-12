@@ -125,7 +125,7 @@ function Analyses({ run }: { run: SimulationRunDto }) {
       {selected ? <Results run={run} analysis={selected} /> : null}
       {items.length > 1 ? (
         <Panel title="Previous analyses of this run" subtitle="Newest first">
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full min-w-[36rem] text-left text-sm">
               <caption className="sr-only">Previous analyses</caption>
               <thead className="text-xs text-slate-500 uppercase">
@@ -368,26 +368,26 @@ function DistributionTable({
   }[];
 }) {
   return (
-    <div className="overflow-x-auto">
+    <div className="relative overflow-x-auto">
       <table className="w-full min-w-[44rem] text-left text-sm">
         <caption className="sr-only">{caption}</caption>
         <thead className="text-xs text-slate-500 uppercase">
           <tr>
-            <th scope="col" className="py-2 pr-4 font-medium">
+            <th scope="col" className="py-2 pr-3 font-medium">
               Metric
             </th>
-            <th scope="col" className="py-2 pr-4 text-right font-medium">
+            <th scope="col" className="py-2 pr-3 text-right font-medium">
               Observed
             </th>
-            <th scope="col" className="py-2 pr-4 text-right font-medium">
+            <th scope="col" className="py-2 pr-3 text-right font-medium">
               Min
             </th>
             {ANALYSIS_QUANTILE_LEVELS_BPS.map((l) => (
-              <th key={l} scope="col" className="py-2 pr-4 text-right font-medium">
+              <th key={l} scope="col" className="py-2 pr-3 text-right font-medium">
                 {quantileLabel(l)}
               </th>
             ))}
-            <th scope="col" className="py-2 pr-4 text-right font-medium">
+            <th scope="col" className="py-2 pr-3 text-right font-medium">
               Max
             </th>
           </tr>
@@ -395,17 +395,20 @@ function DistributionTable({
         <tbody className="divide-y divide-slate-800 font-mono whitespace-nowrap tabular-nums">
           {rows.map((r) => (
             <tr key={r.label}>
-              <th scope="row" className="py-2 pr-4 font-sans font-normal text-slate-300">
+              <th
+                scope="row"
+                className="min-w-[8rem] py-2 pr-3 font-sans font-normal whitespace-normal text-slate-300"
+              >
                 {r.label}
               </th>
-              <td className="py-2 pr-4 text-right text-sky-300">{r.observed ?? '—'}</td>
-              <td className="py-2 pr-4 text-right">{r.format(r.dist.min)}</td>
+              <td className="py-2 pr-3 text-right text-sky-300">{r.observed ?? '—'}</td>
+              <td className="py-2 pr-3 text-right">{r.format(r.dist.min)}</td>
               {r.dist.quantiles.map((q) => (
-                <td key={q.levelBps} className="py-2 pr-4 text-right text-violet-200">
+                <td key={q.levelBps} className="py-2 pr-3 text-right text-violet-200">
                   {r.format(q.value)}
                 </td>
               ))}
-              <td className="py-2 pr-4 text-right">{r.format(r.dist.max)}</td>
+              <td className="py-2 pr-3 text-right">{r.format(r.dist.max)}</td>
             </tr>
           ))}
         </tbody>
@@ -523,7 +526,7 @@ function Results({ run, analysis }: { run: SimulationRunDto; analysis: Simulatio
 
         <section aria-label="How paths ended">
           <h3 className="mb-2 text-sm font-medium text-slate-200">How paths ended</h3>
-          <div className="overflow-x-auto">
+          <div className="relative overflow-x-auto">
             <table className="w-full min-w-[30rem] text-left text-sm">
               <caption className="sr-only">Paths by stop reason</caption>
               <thead className="text-xs text-slate-500 uppercase">

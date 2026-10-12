@@ -274,17 +274,17 @@ describe('POST /api/simulations/:id/analyses', () => {
     );
     const run = await createRun();
     const maxPaths = maxPathsForSample(2_500);
-    expect(maxPaths).toBe(800);
+    expect(maxPaths).toBe(400);
     const list = simulationAnalysesListSchema.parse(
       await (await fetch(`${server.baseUrl}/api/simulations/${run.id}/analyses`)).json(),
     );
-    expect(list).toMatchObject({ maxPaths: 800, sampleSize: 2_500, total: 0 });
-    const res = await analyse(run.id, { paths: 801, seed: 1 });
+    expect(list).toMatchObject({ maxPaths: 400, sampleSize: 2_500, total: 0 });
+    const res = await analyse(run.id, { paths: 401, seed: 1 });
     expect(res.status).toBe(422);
     const body = apiErrorSchema.parse(await res.json());
     expect(body.error).toMatchObject({
       code: 'analysis_too_large',
-      details: { maxPaths: 800, sampleSize: 2_500 },
+      details: { maxPaths: 400, sampleSize: 2_500 },
     });
     expect(count('simulation_analyses')).toBe(0);
   });
