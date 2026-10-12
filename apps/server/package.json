@@ -1,0 +1,19 @@
+{
+  "name": "@aviator/server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-only Express API and SQLite data layer for Aviator Intelligence.",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch --conditions=source src/index.ts",
+    "db:migrate": "tsx --conditions=source src/scripts/db-migrate.ts",
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@aviator/shared": "0.1.0",
+    "better-sqlite3": "^13.0.3",
+    "express": "^5.3.0",
+    "zod": "^4.6.5"
+  }
+}
