@@ -8,7 +8,7 @@ import { currencyCodeSchema, type CurrencyCode } from '@aviator/shared';
 export const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
 export const DEFAULT_DB_PATH = 'data/aviator.sqlite';
 
-const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost']);
+export const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['127.0.0.1', '::1', 'localhost']);
 
 const booleanFlag = z
   .enum(['true', 'false'], { message: 'must be "true" or "false"' })
