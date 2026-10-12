@@ -69,6 +69,15 @@ describe('loopback Host guard', () => {
     '127.0.0.1.attacker.example',
     '0.0.0.0',
     '192.168.1.5:4317',
+    '127.0.0.2:4317',
+    'localhost.',
+    // Malformed authorities must not be reduced to a loopback-looking prefix.
+    '[::1]evil.example',
+    '[::1]evil.example:80',
+    'localhost:4317:9999',
+    'localhost:abc',
+    'localhost@evil.example',
+    'localhost:99999',
   ])('rejects reads and writes addressed to %j and stores nothing', async (hostHeader) => {
     const { db, port } = await start();
     const read = await send(port, hostHeader);
@@ -110,5 +119,11 @@ describe('loopback Host guard', () => {
     expect(hostnameOf('LocalHost')).toBe('localhost');
     expect(hostnameOf(undefined)).toBeNull();
     expect(hostnameOf('[::1')).toBeNull();
+    expect(hostnameOf('[::1]evil.example')).toBeNull();
+    expect(hostnameOf('localhost:4317:9999')).toBeNull();
+    expect(hostnameOf('localhost:')).toBeNull();
+    expect(hostnameOf('localhost:99999')).toBeNull();
+    expect(hostnameOf(' localhost')).toBeNull();
+    expect(hostnameOf('127.0.0.1.attacker.example')).toBe('127.0.0.1.attacker.example');
   });
 });

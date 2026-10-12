@@ -145,7 +145,7 @@ docs/             Scope, architecture, data import contract, live-observation re
 
 - Crash-game rounds are designed to be independent. Descriptive statistics of past rounds are not evidence of a predictive edge, and a profitable backtest is not evidence of future profit.
 - The leg settlement rule (cashout succeeds when crash multiplier ≥ target) is a modelling assumption still to be confirmed against the platform's published rules.
-- The API has no authentication and is meant for a single local user on loopback only. While bound to loopback, it rejects requests addressed to any host name other than `localhost`, `127.0.0.1` or `[::1]` (DNS-rebinding protection). Exposing it on a network would need authentication first.
+- The API has no authentication and is meant for a single local user on loopback only. While bound to loopback, it rejects requests whose `Host` header is not `localhost`, `127.0.0.1` or `[::1]`, which mitigates DNS-rebinding attacks from web pages. This is not complete protection or authentication: any local process can still call it, so do not expose it to a network. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - `npm run dev` may show "Local API unreachable" for a few seconds, because the dashboard can start before the API. Reload once the API has started.
 - Import previews are held in API memory: they expire after 15 minutes and are lost when the API restarts.
 - If an import fails and recording the failure in history also fails, the attempt appears only in the server log, not in import history.

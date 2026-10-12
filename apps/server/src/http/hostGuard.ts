@@ -1,22 +1,29 @@
 import type { RequestHandler } from 'express';
 import { LOOPBACK_HOSTS } from '../config/env.js';
 
-/** Hostname part of a Host header value: "127.0.0.1:4317" -> "127.0.0.1", "[::1]:4317" -> "::1". */
+/** host [":" port], where host is a bracketed IPv6 literal or a plain name / IPv4 address. */
+const AUTHORITY = /^(?:\[([0-9a-f:.]+)\]|([a-z0-9.-]+))(?::(\d{1,5}))?$/i;
+
+/**
+ * Lower-cased hostname of a Host header value ("127.0.0.1:4317" -> "127.0.0.1",
+ * "[::1]:4317" -> "::1"), or null if the whole value is not a well-formed authority.
+ * Malformed values such as "[::1]evil.example" or "localhost:1:2" are rejected rather
+ * than reduced to a loopback-looking prefix.
+ */
 export function hostnameOf(hostHeader: string | undefined): string | null {
   if (!hostHeader) return null;
-  const value = hostHeader.trim().toLowerCase();
-  if (value.startsWith('[')) {
-    const end = value.indexOf(']');
-    return end > 0 ? value.slice(1, end) : null;
-  }
-  return value.split(':')[0] || null;
+  const match = AUTHORITY.exec(hostHeader);
+  if (!match) return null;
+  if (match[3] !== undefined && Number(match[3]) > 65_535) return null;
+  return (match[1] ?? match[2] ?? '').toLowerCase() || null;
 }
 
 /**
- * DNS-rebinding guard. While the API is bound to a loopback address, a web page on another
- * domain can still reach it if that domain is re-pointed at 127.0.0.1; such requests carry
- * the attacker's Host header. Only loopback host names are accepted, so a rebound page can
- * neither read local data nor write rounds. (The Vite dev proxy forwards Host 127.0.0.1:5173.)
+ * Mitigates DNS rebinding while the API is bound to loopback: a page on another domain that
+ * re-points its name at 127.0.0.1 still sends its own Host header, so only the loopback names
+ * localhost, 127.0.0.1 and [::1] are accepted. This is not authentication: any local process
+ * can still call the API, so it must not be exposed to a network.
+ * (The Vite dev proxy forwards Host 127.0.0.1:5173.)
  */
 export const loopbackHostGuard: RequestHandler = (req, res, next) => {
   const hostname = hostnameOf(req.headers.host);

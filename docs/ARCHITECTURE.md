@@ -75,15 +75,23 @@ Errors always use the shape `{ "error": { "code", "message", "details?" } }`:
 
 The only write endpoints are manual round entry and import preview/confirm. They write only through fixed, parameterised statements: there are no generic table writes, no filesystem access, no URL fetching, no SQL passthrough and no debug routes.
 
-The server binds to `127.0.0.1` by default and refuses non-loopback hosts unless `AVIATOR_ALLOW_REMOTE_BIND=true`.
-
-While bound to loopback, it also rejects any request whose `Host` header is not `localhost`, `127.0.0.1` or `[::1]` (`403 forbidden_host`). This blocks DNS-rebinding attacks, where a web page on another domain re-points that domain at 127.0.0.1 to read or write local data. The Vite dev proxy forwards `Host: 127.0.0.1:5173`, which is allowed. Requests with no `Host` header are rejected by Node itself (400).
-
-Cross-site form posts are not a risk either: JSON bodies are parsed only for `Content-Type: application/json`, and the API sends no CORS headers. The server also:
+Binding, the Host check and cross-site behaviour are described under **Local-only security model** below. The server also:
 
 - disables `X-Powered-By`
 - sends `X-Content-Type-Options: nosniff` and `Cache-Control: no-store`
 - limits JSON bodies to 100 kB (5 MB for import preview only)
+
+### Local-only security model
+
+- **Binding:** the API binds to `127.0.0.1` by default. A non-loopback `API_HOST` is refused at startup unless `AVIATOR_ALLOW_REMOTE_BIND=true`.
+- **Host check (DNS-rebinding mitigation):** while `API_HOST` is a loopback name, every request must carry a well-formed `Host` header naming `localhost`, `127.0.0.1` or `[::1]` (any port). Otherwise it gets `403 forbidden_host`. A web page on another domain that re-points its name at 127.0.0.1 still sends its own `Host` header, so it is refused. Malformed values (`[::1]evil.example`, `localhost:1:2`) are refused, and requests with no `Host` header are rejected by Node itself (400). The Vite dev proxy forwards `Host: 127.0.0.1:5173`, which is allowed.
+- **Cross-site requests:** JSON bodies are parsed only for `Content-Type: application/json`, and the API sends no CORS headers, so other sites can neither read responses nor send JSON writes.
+- **What this does not cover:** the Host check is one mitigation, not complete protection, and it is not authentication.
+  - Any process on the machine can call the API.
+  - Tools that send a forged `Host` header are not browsers and are not stopped by it.
+  - Binding to a non-loopback address with `AVIATOR_ALLOW_REMOTE_BIND=true` turns the check off entirely, and the API has no authentication.
+
+  Do not expose the API to a network; that would first need authentication.
 
 ## Data model
 
