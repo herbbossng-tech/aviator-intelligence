@@ -91,9 +91,36 @@ Aviator Intelligence is a local-first research and simulation dashboard for the 
 - **Reproducibility:** the stored configuration and dataset report, plus a SHA-256 of the replayed rounds.
 - **Docs:** [SIMULATION.md](SIMULATION.md).
 - **Deferred:**
-  - risk of ruin (no defensible estimate from one historical path)
-  - resampling and uncertainty intervals for backtests
+  - risk of ruin for a single backtest (no defensible estimate from one historical path; see pass 5 for the narrowly defined model frequency)
   - stored, named strategies (the `strategies` table is still unused; each run snapshots its configuration)
+
+## Implemented in pass 5: simulation uncertainty and risk analysis
+
+- **Engine:**
+  - The backtest replay loop is now one internal core used by both `runBacktest` and resampled paths (`createSummaryReplayer`). There is no second settlement implementation.
+  - `packages/shared/src/bootstrap.ts` adds a seeded **IID empirical bootstrap** of a completed run's own sample:
+    - n draws with replacement per path; each path replayed independently from the starting bankroll with the run's configuration
+    - xoshiro128\*\* per-path generators derived from (seed, path), with unbiased index draws
+    - a recorded algorithm version
+- **Statistics:**
+  - nearest-rank quantiles (p05–p95, plus min and max) of ending bankroll, max drawdown (relative and amount) and rounds replayed
+  - net-outcome and stop-reason counts, with denominators
+  - the observed run beside the resampled figures
+  - data-sufficiency warnings
+  - **configured-boundary frequency**: the share of paths that ended by reaching the run's configured lower-bankroll or drawdown stop under the model. It is shown only when that stop is configured, and is explicitly not a probability of real-world ruin.
+- **Safety:**
+  - The sample must still match the run's dataset fingerprint (`409 dataset_changed` otherwise).
+  - Limits are checked before computing: at most 2,000 paths and 1,000,000 replayed rounds per analysis.
+  - Out-of-range results are refused rather than rounded.
+- **Persistence:** migration 004 (additive). Only completed analyses are stored, as single immutable rows tied to a completed run with the same fingerprint. Deleting a run cascades to them.
+- **API:** `POST` and `GET /api/simulations/:id/analyses`, and `GET /api/simulations/:id/analyses/:analysisId`.
+- **UI:** `/simulations/:id/uncertainty`, linked from each completed run.
+- **Docs:** [UNCERTAINTY.md](UNCERTAINTY.md).
+- **Deferred:**
+  - block or stationary bootstrap (order-preserving)
+  - confidence intervals for model frequencies
+  - charts
+  - background jobs for larger analyses
 
 ## Planned for later phases
 
@@ -102,7 +129,9 @@ Each phase needs separate approval.
 - **Data:** editing or deleting stored rounds and imports (currently there is no delete or undo); exporting rounds.
 - **Analysis:** rolling-window summaries, once a trustworthy within-source ordering is defined; per-source comparisons.
 - **Strategy lab:** save and name two-leg strategies for reuse.
-- **Simulation uncertainty:** seeded resampling (e.g. block bootstrap) with stated assumptions, which could support uncertainty intervals and a defensible risk-of-ruin estimate.
+- **Simulation uncertainty, beyond pass 5:**
+  - an order-preserving (block) bootstrap with a justified block length
+  - interval estimates for model frequencies, with stated assumptions
 - **Testing:** Playwright end-to-end tests of the dashboard itself.
 - **Operations:** a combined production server for the built dashboard; backup/export tooling; an optional PostgreSQL migration path. The data access is already isolated in repository modules.
 
