@@ -75,7 +75,11 @@ Errors always use the shape `{ "error": { "code", "message", "details?" } }`:
 
 The only write endpoints are manual round entry and import preview/confirm. They write only through fixed, parameterised statements: there are no generic table writes, no filesystem access, no URL fetching, no SQL passthrough and no debug routes.
 
-The server binds to `127.0.0.1` by default and refuses non-loopback hosts unless `AVIATOR_ALLOW_REMOTE_BIND=true`. It also:
+The server binds to `127.0.0.1` by default and refuses non-loopback hosts unless `AVIATOR_ALLOW_REMOTE_BIND=true`.
+
+While bound to loopback, it also rejects any request whose `Host` header is not `localhost`, `127.0.0.1` or `[::1]` (`403 forbidden_host`). This blocks DNS-rebinding attacks, where a web page on another domain re-points that domain at 127.0.0.1 to read or write local data. The Vite dev proxy forwards `Host: 127.0.0.1:5173`, which is allowed. Requests with no `Host` header are rejected by Node itself (400).
+
+Cross-site form posts are not a risk either: JSON bodies are parsed only for `Content-Type: application/json`, and the API sends no CORS headers. The server also:
 
 - disables `X-Powered-By`
 - sends `X-Content-Type-Options: nosniff` and `Cache-Control: no-store`

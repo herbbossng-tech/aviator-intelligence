@@ -85,7 +85,7 @@ function SummaryCards({ data }: { data: OverviewResponse }) {
         detail={
           rounds.total === 0
             ? 'No rounds recorded yet'
-            : `${formatCount(rounds.distinctSources)} source(s) · latest ${formatTimestamp(rounds.latestObservedAt)}`
+            : `${formatCount(rounds.distinctSources)} source(s) · last added to this app ${formatTimestamp(rounds.latestObservedAt)}`
         }
       />
       <StatCard

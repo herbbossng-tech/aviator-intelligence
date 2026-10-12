@@ -1,8 +1,9 @@
 import express, { type Express } from 'express';
-import type { AppConfig } from '../config/env.js';
+import { LOOPBACK_HOSTS, type AppConfig } from '../config/env.js';
 import type { Db } from '../db/connection.js';
 import { PreviewStore } from '../imports/previewStore.js';
 import { createErrorHandler, notFoundHandler } from './errors.js';
+import { loopbackHostGuard } from './hostGuard.js';
 import { dataRouter } from './routes/data.js';
 import { importsRouter } from './routes/imports.js';
 import { roundsRouter } from './routes/rounds.js';
@@ -31,6 +32,9 @@ export function createApp({
 }: AppDependencies): Express {
   const app = express();
   app.disable('x-powered-by');
+  // When bound to loopback, refuse requests addressed to any other host name (DNS rebinding).
+  // With AVIATOR_ALLOW_REMOTE_BIND=true and a non-loopback API_HOST the operator has opted out.
+  if (LOOPBACK_HOSTS.has(config.host)) app.use(loopbackHostGuard);
   app.use((_req, res, next) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Cache-Control', 'no-store');
