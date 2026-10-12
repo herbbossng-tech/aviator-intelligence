@@ -17,8 +17,9 @@ export function MethodologyPage() {
         </Panel>
         <Panel title="Simulation">
           <p className="text-sm text-slate-400">
-            Replays of a configuration against recorded rounds using virtual money. A good backtest
-            is not evidence of a future edge.
+            Replays of a two-leg configuration against recorded rounds, in event-time order, using
+            virtual money. A good backtest is not evidence of a future edge. See docs/SIMULATION.md
+            for the full method.
           </p>
         </Panel>
         <Panel title="Predictive evidence">
@@ -38,7 +39,8 @@ export function MethodologyPage() {
             </li>
             <li>Streaks and patterns in past multipliers are not treated as predictors.</li>
             <li>
-              Results will be reported with variance, drawdown and uncertainty, not totals alone.
+              Backtest results report drawdown, lowest bankroll, losing streaks and every
+              denominator, not totals alone. Risk of ruin is not estimated from a single replay.
             </li>
           </ul>
         </Panel>

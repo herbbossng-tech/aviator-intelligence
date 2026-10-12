@@ -6,7 +6,6 @@ import { EmptyState } from '../components/EmptyState';
 import { ErrorNotice } from '../components/ErrorNotice';
 import { PageHeader } from '../components/PageHeader';
 import { Panel } from '../components/Panel';
-import { PlannedBadge } from '../components/PlannedBadge';
 import { RoundsTable } from '../components/RoundsTable';
 import { StatCard } from '../components/StatCard';
 import { formatCount, formatMinorAmount, formatTimestamp } from '../lib/format';
@@ -44,14 +43,10 @@ export function OverviewPage() {
         </Panel>
 
         <div className="flex flex-col gap-6">
-          <Panel
-            title="Strategy lab"
-            subtitle="Two-leg virtual configurations"
-            actions={<PlannedBadge>Preview</PlannedBadge>}
-          >
+          <Panel title="Strategy lab" subtitle="Two-leg virtual backtests">
             <p className="text-sm text-slate-400">
-              Define two independently configured simulated legs (for example, different cashout
-              targets) and, in a later phase, compare them against recorded history.
+              Configure two virtual legs (for example, different cashout targets) and replay them
+              against recorded rounds with a virtual bankroll. Backtests describe the past only.
             </p>
             <Link
               to="/strategy-lab"
@@ -94,8 +89,8 @@ function SummaryCards({ data }: { data: OverviewResponse }) {
         muted={simulations.total === 0}
         detail={
           simulations.total === 0
-            ? 'No simulations run yet (engine not yet implemented)'
-            : `${formatCount(simulations.completed)} completed`
+            ? 'No simulations run yet'
+            : `${formatCount(simulations.completed)} completed · ${formatCount(simulations.total - simulations.completed)} failed`
         }
       />
       <StatCard

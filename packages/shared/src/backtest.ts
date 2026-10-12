@@ -446,6 +446,8 @@ export const backtestRequestSchema = z
     }
   });
 export type BacktestRequest = z.infer<typeof backtestRequestSchema>;
+/** What a client sends: optional dataset fields may be omitted. */
+export type BacktestRequestInput = z.input<typeof backtestRequestSchema>;
 
 export const ORDERING_RULE =
   'Single source; rounds replayed by event time ascending. Rounds without an event time are excluded; duplicate event times make the order ambiguous and are rejected.';
