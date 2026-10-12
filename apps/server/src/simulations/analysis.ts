@@ -19,6 +19,16 @@ export interface AnalysisOptions {
   log: (message: string, error: unknown) => void;
 }
 
+function tooLarge(sampleSize: number): HttpError {
+  const maxPaths = maxPathsForSample(sampleSize);
+  return new HttpError(
+    422,
+    'analysis_too_large',
+    `This run's sample has ${sampleSize} rounds, so at most ${maxPaths} paths are allowed (the work limit is paths x rounds).`,
+    { maxPaths, sampleSize },
+  );
+}
+
 export const FAILED_ANALYSIS_MESSAGE =
   'The uncertainty analysis could not be completed. Nothing was stored.';
 
@@ -42,6 +52,11 @@ export function runAndStoreAnalysis(
       'Only a completed run can be analysed; this run failed and has no results.',
     );
   }
+  // Refuse oversized requests from the run's recorded sample size before reading anything.
+  const recordedSize = run.dataset?.roundsEligible ?? 0;
+  if (recordedSize > 0 && settings.paths > maxPathsForSample(recordedSize)) {
+    throw tooLarge(recordedSize);
+  }
   const createdAt = now().toISOString();
   const { rounds, problem } = db.transaction(() => {
     const report = getDatasetReport(db, run.datasetRequest, maxRounds);
@@ -60,14 +75,7 @@ export function runAndStoreAnalysis(
     );
   }
   const maxPaths = maxPathsForSample(rounds.length);
-  if (settings.paths > maxPaths) {
-    throw new HttpError(
-      422,
-      'analysis_too_large',
-      `This run's sample has ${rounds.length} rounds, so at most ${maxPaths} paths are allowed (the work limit is paths x rounds).`,
-      { maxPaths, sampleSize: rounds.length },
-    );
-  }
+  if (settings.paths > maxPaths) throw tooLarge(rounds.length);
 
   let summary;
   try {
