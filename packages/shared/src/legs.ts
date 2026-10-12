@@ -5,7 +5,7 @@ import { cashoutTargetX100Schema } from './multiplier.js';
 /**
  * A strategy consists of two independently configurable SIMULATED legs (A and B).
  * Configuring legs does not place bets and does not imply that any configuration
- * is profitable. These types describe inputs to future simulations only.
+ * is profitable. These types are the inputs to virtual backtests (see backtest.ts).
  */
 export const LEG_KEYS = ['A', 'B'] as const;
 export const legKeySchema = z.enum(LEG_KEYS);
