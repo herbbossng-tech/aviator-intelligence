@@ -56,7 +56,7 @@ A backtest replays rounds in a sequence, so the order must be trustworthy.
 - **Ordering rule:** replay by `event_at` ascending.
   - Rounds without an event time are **excluded and counted**. The app never invents timestamps, and insertion order is not treated as event order.
   - If two eligible rounds share an event time, the order is ambiguous and the run is **refused** (HTTP 422) until the selection is narrowed.
-  - Event times are ordered as text, which is only correct for the canonical UTC form the app writes (`YYYY-MM-DDTHH:MM:SS.sssZ`). If any eligible round has an event time stored in another form (for example, edited outside the app), the run is **refused** and the count is shown as `nonCanonicalEventTimes`.
+  - Event times are ordered as text, which is only correct for the canonical UTC form the app writes (`YYYY-MM-DDTHH:MM:SS.sssZ`). Each stored value must also be a real instant: it must equal `new Date(value).toISOString()`, so impossible values with the right shape (`2026-02-30…`, a 29 February outside a leap year, hour 24, second 60) are rejected. If any eligible round has an event time that fails this check (for example, edited outside the app), the run is **refused** with 422 before anything is stored, and the count is shown as `nonCanonicalEventTimes`.
   - A selection with no eligible rounds is refused.
   - A selection with more than 100,000 eligible rounds is refused.
 - **Synthetic test fixtures** (`is_synthetic = 1`) are always excluded and counted.
@@ -127,11 +127,11 @@ All amounts are virtual, in minor units, shown in major units in the UI.
   - to `simulation_runs`: `summary_json`, `stop_reason` and `dataset_sha256`
   - to `ledger_entries`: `round_multiplier_x100` and `bankroll_before_minor`
 
-  Triggers enforce five rules:
+  Triggers enforce these rules:
   - a completed run must carry a summary, a stop reason and a dataset hash
   - a non-completed run may not carry a summary
   - ledger rows may only belong to a completed run
-  - stored ledger rows are immutable (deleting a run still cascades to its ledger)
+  - stored ledger rows are immutable: they cannot be updated, and cannot be deleted while their run exists. Deleting the run itself still cascades to its whole ledger.
   - a completed run cannot change to another status
 
 - **One transaction:** reading the dataset, replaying it, and writing the completed run with **every** ledger entry commit together or not at all.
@@ -176,6 +176,7 @@ Error codes:
 - `simulation_out_of_range` (422): exact results would exceed `Number.MAX_SAFE_INTEGER`; nothing is stored
 - `simulation_failed` (500): generic; a failed run is recorded
 - `simulation_not_found` (404)
+- `stored_data_invalid` (500): a stored run could not be read back safely (for example, a row written outside the app). The details give the run id only. The row is not modified or skipped, and the cause is logged on the server.
 
 The routes sit behind the same loopback Host guard as the rest of the API.
 
@@ -185,3 +186,4 @@ The routes sit behind the same loopback Host guard as the rest of the API.
 - The replay ignores anything the recorded data cannot show: timing, latency, manual cashouts, platform limits, and whether a cashout would actually have been accepted.
 - A backtest over one historical sequence says nothing about the distribution of outcomes on other sequences. No confidence intervals or resampling are reported yet.
 - Selections larger than 100,000 eligible rounds must be narrowed.
+- `limit`, `offset` and `importId` query parameters use the same lenient number parsing as the rest of the API (for example `1e1` is read as 10). Run ids in the path are strict. Making query parsing strict across every endpoint is deferred.

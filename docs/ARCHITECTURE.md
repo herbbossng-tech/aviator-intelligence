@@ -79,7 +79,7 @@ Errors always use the shape `{ "error": { "code", "message", "details?" } }`:
 - `payload_too_large`, `file_too_large` (413)
 - file-content errors (422)
 - `dataset_not_replayable`, `simulation_out_of_range` (422)
-- `database_write_failed`, `simulation_failed`, `internal_error` (500, generic message; details are logged server-side only)
+- `database_write_failed`, `simulation_failed`, `stored_data_invalid`, `internal_error` (500, generic message; details are logged server-side only)
 
 The only write endpoints are manual round entry, import preview/confirm and running a virtual backtest (which writes only `simulation_runs` and `ledger_entries`; historical rounds are only read). They write only through fixed, parameterised statements: there are no generic table writes, no filesystem access, no URL fetching, no SQL passthrough and no debug routes.
 

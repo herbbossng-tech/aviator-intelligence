@@ -1,6 +1,7 @@
 import type { ErrorRequestHandler, RequestHandler } from 'express';
 import { ZodError } from 'zod';
 import type { ApiError, ValidationDetail } from '@aviator/shared';
+import { StoredDataError } from '../db/storedDataError.js';
 import { IMPORT_FILE_ERROR_STATUS, ImportFileError } from '../imports/errors.js';
 
 export class HttpError extends Error {
@@ -44,6 +45,20 @@ export function createErrorHandler(
     }
     if (err instanceof ImportFileError) {
       res.status(IMPORT_FILE_ERROR_STATUS[err.code]).json(body(err.code, err.message, err.details));
+      return;
+    }
+    if (err instanceof StoredDataError) {
+      // Checked before ZodError: a stored row that fails validation is a server-side problem.
+      log('Stored data failed validation', err);
+      res
+        .status(500)
+        .json(
+          body(
+            'stored_data_invalid',
+            'A stored record could not be read safely. It has not been modified; see the server log.',
+            err.record,
+          ),
+        );
       return;
     }
     if (err instanceof ZodError) {

@@ -388,7 +388,9 @@ describe('Simulation run detail', () => {
     expect(screen.getByText(/Risk of ruin is not estimated/)).toBeTruthy();
     expect(screen.getByText('₦1.00 at 2.00x (“Leg A”)')).toBeTruthy();
     expect(screen.getByText(/largest relative fall 20\.0%/)).toBeTruthy();
-    expect(screen.getByText('Non-canonical event times').nextSibling?.textContent).toBe('0');
+    expect(screen.getByText('Invalid or non-canonical event times').nextSibling?.textContent).toBe(
+      '0',
+    );
   });
 
   it('shows a failed run without results', async () => {

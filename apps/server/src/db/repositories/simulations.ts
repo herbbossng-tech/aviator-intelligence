@@ -16,11 +16,33 @@ import {
 } from '@aviator/shared';
 import { z } from 'zod';
 import type { Db } from '../connection.js';
+import { StoredDataError } from '../storedDataError.js';
 import { roundFilterSql, type RoundFilter } from './rounds.js';
 
-/** The only event_at form the app writes: new Date(...).toISOString(). */
-const CANONICAL_EVENT_AT_GLOB =
-  '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9].[0-9][0-9][0-9]Z';
+const CANONICAL_EVENT_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/**
+ * True only for the exact form the app writes, new Date(...).toISOString(), AND a real
+ * instant: '2026-02-30T00:00:00.000Z' or '...T24:00:00.000Z' have the right shape but
+ * JavaScript normalises them to a different instant, so they fail the round trip. Only such
+ * values sort correctly as text.
+ */
+export function isCanonicalEventAt(value: unknown): boolean {
+  if (typeof value !== 'string' || !CANONICAL_EVENT_AT.test(value)) return false;
+  const instant = Date.parse(value);
+  return !Number.isNaN(instant) && new Date(instant).toISOString() === value;
+}
+
+const withEventAtCheck = new WeakSet<Db>();
+
+/** Registers isCanonicalEventAt as a deterministic SQL function on this connection. */
+function registerEventAtCheck(db: Db): void {
+  if (withEventAtCheck.has(db)) return;
+  db.function('aviator_is_canonical_event_at', { deterministic: true }, (value: unknown) =>
+    isCanonicalEventAt(value) ? 1 : 0,
+  );
+  withEventAtCheck.add(db);
+}
 
 /** A replayed round plus the identity fields that go into the dataset fingerprint. */
 export interface ReplayRound extends BacktestRound {
@@ -52,6 +74,7 @@ export function getDatasetReport(
   dataset: BacktestDataset,
   maxRounds: number,
 ): BacktestDatasetReport {
+  registerEventAtCheck(db);
   const filter = toFilter(dataset);
   const dated = roundFilterSql(filter);
   const eligible = db
@@ -73,7 +96,7 @@ export function getDatasetReport(
     db
       .prepare(
         `SELECT COUNT(*) AS n FROM rounds WHERE ${dated.where} AND event_at IS NOT NULL
-            AND NOT (length(event_at) = 24 AND event_at GLOB '${CANONICAL_EVENT_AT_GLOB}')`,
+            AND aviator_is_canonical_event_at(event_at) = 0`,
       )
       .get(...dated.params) as { n: number }
   ).n;
@@ -97,7 +120,7 @@ export function getDatasetReport(
         ? 'None of the matching rounds has an event time, so they cannot be replayed in order.'
         : 'No eligible rounds match this selection.';
   } else if (nonCanonical > 0) {
-    problem = `${nonCanonical} eligible round(s) have an event time that is not in the canonical UTC form this app writes, so the replay order cannot be trusted. Re-import those rounds.`;
+    problem = `${nonCanonical} eligible round(s) have an event time that is not a real instant in the canonical UTC form this app writes, so the replay order cannot be trusted. Correct or re-import those rounds.`;
   } else if (duplicates > 0) {
     problem = `${duplicates} event time(s) are shared by more than one round, so the replay order is ambiguous. Narrow the selection (for example by import or date range).`;
   } else if (eligible.n > maxRounds) {
@@ -263,7 +286,20 @@ const RUN_COLUMNS =
 /** Only runs written by the backtest service (completed or failed) are listed. */
 const RUN_SCOPE = "status IN ('completed', 'failed')";
 
+/**
+ * Every stored JSON column is re-validated on read. A row that fails is reported as a
+ * StoredDataError (HTTP 500 stored_data_invalid) rather than skipped, so a list is never
+ * silently incomplete and a server-side data problem is never reported as a client error.
+ */
 function toRunDto(row: RunRow): SimulationRunDto {
+  try {
+    return parseRunRow(row);
+  } catch (error) {
+    throw new StoredDataError({ simulationRunId: row.id }, error);
+  }
+}
+
+function parseRunRow(row: RunRow): SimulationRunDto {
   const dataset = storedDatasetSchema.parse(JSON.parse(row.dataset_json));
   return {
     id: row.id,

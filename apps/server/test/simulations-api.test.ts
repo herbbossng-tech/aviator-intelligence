@@ -19,6 +19,7 @@ import { openDatabase, type Db } from '../src/db/connection.js';
 import { migrate } from '../src/db/migrate.js';
 import { getOverview } from '../src/db/repositories/overview.js';
 import { insertRound } from '../src/db/repositories/rounds.js';
+import { isCanonicalEventAt } from '../src/db/repositories/simulations.js';
 import { createErrorHandler } from '../src/http/errors.js';
 import { simulationsRouter } from '../src/http/routes/simulations.js';
 import { FAILED_RUN_MESSAGE } from '../src/simulations/service.js';
@@ -558,5 +559,152 @@ describe('review regressions', () => {
         )
         .run(run.id),
     ).toThrow(/completed simulation run cannot change status/);
+  });
+});
+
+describe('final review regressions', () => {
+  it('rejects deleting an individual ledger row but still cascades when the run is deleted', async () => {
+    seedSeries(db, [150, 200, 700]);
+    const run = await runOk();
+    const ledgerRows = () =>
+      (
+        db
+          .prepare('SELECT COUNT(*) AS n FROM ledger_entries WHERE simulation_run_id = ?')
+          .get(run.id) as { n: number }
+      ).n;
+    expect(ledgerRows()).toBe(6);
+
+    // a. Deleting a single entry (or all of them) while the run exists is rejected.
+    expect(() =>
+      db
+        .prepare('DELETE FROM ledger_entries WHERE simulation_run_id = ? AND sequence_no = 1')
+        .run(run.id),
+    ).toThrow(/ledger entries cannot be deleted while their simulation run exists/);
+    expect(() => db.prepare('DELETE FROM ledger_entries').run()).toThrow(/cannot be deleted/);
+    // b. Nothing was removed.
+    expect(ledgerRows()).toBe(6);
+    // d. The database is still usable: reads and new runs work after the rejected statement.
+    const ledger = ledgerResponseSchema.parse(
+      await (await fetch(`${server.baseUrl}/api/simulations/${run.id}/ledger`)).json(),
+    );
+    expect(ledger.rounds.map((r) => r.sequenceNo)).toEqual([0, 1, 2]);
+    const second = await runOk();
+    expect(count('ledger_entries')).toBe(12);
+    // c. Deleting the parent run cascades to all of its ledger rows (and only those).
+    expect(db.prepare('DELETE FROM simulation_runs WHERE id = ?').run(run.id).changes).toBe(1);
+    expect(ledgerRows()).toBe(0);
+    expect(count('ledger_entries')).toBe(6);
+    expect(
+      (
+        db
+          .prepare('SELECT COUNT(*) AS n FROM ledger_entries WHERE simulation_run_id = ?')
+          .get(second.id) as { n: number }
+      ).n,
+    ).toBe(6);
+  });
+
+  it('reports an unreadable stored run as a server-side error, not a client validation error', async () => {
+    seedSeries(db, [150, 200]);
+    const good = await runOk();
+    // A row written outside the app (e.g. legacy or hand-edited) that the API cannot represent.
+    const badId = Number(
+      db
+        .prepare(
+          `INSERT INTO simulation_runs (strategy_snapshot_json, settings_json, dataset_json, currency,
+             starting_bankroll_minor, status) VALUES ('{}', '{}', '{}', 'NGN', 1000, 'failed')`,
+        )
+        .run().lastInsertRowid,
+    );
+    const before = db.prepare('SELECT * FROM simulation_runs ORDER BY id').all();
+
+    for (const path of [
+      '/api/simulations',
+      `/api/simulations/${badId}`,
+      `/api/simulations/${badId}/ledger`,
+    ]) {
+      const res = await fetch(`${server.baseUrl}${path}`);
+      expect(res.status, path).toBe(500);
+      const body = apiErrorSchema.parse(await res.json());
+      expect(body.error.code, path).toBe('stored_data_invalid');
+      expect(body.error.details, path).toEqual({ simulationRunId: badId });
+      // No schema paths, SQL or JSON internals reach the client.
+      expect(JSON.stringify(body), path).not.toMatch(
+        /strategy_snapshot_json|SELECT|expected|invalid_type/,
+      );
+    }
+    expect(logged.length).toBe(3);
+    // A readable run is still served individually, and nothing was modified or removed.
+    expect((await fetch(`${server.baseUrl}/api/simulations/${good.id}`)).status).toBe(200);
+    expect(db.prepare('SELECT * FROM simulation_runs ORDER BY id').all()).toEqual(before);
+  });
+
+  it.each([
+    ['an impossible day', '2026-02-30T00:00:00.000Z'],
+    ['a non-leap 29 February', '2026-02-29T00:00:00.000Z'],
+    ['hour 24', '2026-01-01T24:00:00.000Z'],
+    ['second 60', '2026-01-01T23:59:60.000Z'],
+    ['month 13', '2026-13-01T00:00:00.000Z'],
+  ])(
+    'refuses a stored event time that is canonical in shape but not a real instant (%s)',
+    async (_name, eventAt) => {
+      seedSeries(db, [150, 200]);
+      db.prepare(
+        `INSERT INTO rounds (multiplier_x100, source, observed_at, event_at, is_synthetic)
+       VALUES (300, ?, '2026-06-01T00:00:00.000Z', ?, 0)`,
+      ).run(SOURCE, eventAt);
+      const report = backtestDatasetReportSchema.parse(
+        await (await fetch(`${server.baseUrl}/api/simulations/dataset?source=${SOURCE}`)).json(),
+      );
+      expect(report).toMatchObject({ orderable: false, nonCanonicalEventTimes: 1 });
+      const res = await post(request());
+      expect(res.status).toBe(422);
+      expect(apiErrorSchema.parse(await res.json()).error.code).toBe('dataset_not_replayable');
+      expect(count('simulation_runs')).toBe(0);
+      expect(count('ledger_entries')).toBe(0);
+      expect(logged).toEqual([]);
+    },
+  );
+
+  it('accepts real leap-day and ordinary UTC event times', async () => {
+    seed(db, [
+      { m: 150, eventAt: '2024-02-28T23:59:59.999Z' },
+      { m: 700, eventAt: '2024-02-29T12:00:00.000Z' },
+      { m: 200, eventAt: '2024-03-01T00:00:00.000Z' },
+    ]);
+    const report = backtestDatasetReportSchema.parse(
+      await (await fetch(`${server.baseUrl}/api/simulations/dataset?source=${SOURCE}`)).json(),
+    );
+    expect(report).toMatchObject({ orderable: true, nonCanonicalEventTimes: 0, roundsEligible: 3 });
+    const run = await runOk();
+    expect(run.summary).toMatchObject({ roundsReplayed: 3, endingBankrollMinor: 1_400 });
+  });
+});
+
+describe('isCanonicalEventAt', () => {
+  it('accepts only real instants in the exact form the app writes', () => {
+    for (const ok of [
+      '2026-01-01T00:00:00.000Z',
+      '2024-02-29T12:00:00.000Z',
+      '2000-12-31T23:59:59.999Z',
+    ]) {
+      expect(isCanonicalEventAt(ok), ok).toBe(true);
+      expect(new Date(ok).toISOString()).toBe(ok);
+    }
+    for (const bad of [
+      '2026-02-30T00:00:00.000Z',
+      '2026-02-29T00:00:00.000Z',
+      '2026-04-31T00:00:00.000Z',
+      '2026-01-01T24:00:00.000Z',
+      '2026-01-01T23:59:60.000Z',
+      '2026-13-01T00:00:00.000Z',
+      '2026-01-01T00:00:00Z',
+      '2026-01-01T00:00:00.000+00:00',
+      '2026-01-01 00:00:00.000Z',
+      '',
+      null,
+      42,
+    ]) {
+      expect(isCanonicalEventAt(bad), String(bad)).toBe(false);
+    }
   });
 });

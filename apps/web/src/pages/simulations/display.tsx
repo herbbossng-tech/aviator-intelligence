@@ -50,8 +50,9 @@ export function AssumptionsList() {
       <li>
         Rounds come from one source and are replayed in event-time order. Rounds without an event
         time, and synthetic test fixtures, are excluded and counted. Duplicate event times make the
-        order ambiguous (and event times not stored in the app&apos;s canonical UTC form make it
-        unreliable), so the run is refused until the selection is narrowed or the data fixed.
+        order ambiguous (and event times that are not real instants in the app&apos;s canonical UTC
+        form make it unreliable), so the run is refused until the selection is narrowed or the data
+        fixed.
       </li>
       <li>
         Each round, every enabled leg is staked from the bankroll available at the start of that
@@ -100,7 +101,7 @@ export function DatasetReportView({ report }: { report: BacktestDatasetReport })
     ['Excluded: no event time', formatCount(report.excludedNoEventTime)],
     ['Excluded: synthetic test fixtures', formatCount(report.excludedSynthetic)],
     ['Duplicate event times', formatCount(report.duplicateEventTimes)],
-    ['Non-canonical event times', formatCount(report.nonCanonicalEventTimes)],
+    ['Invalid or non-canonical event times', formatCount(report.nonCanonicalEventTimes)],
     ['First event', formatTimestamp(report.firstEventAt)],
     ['Last event', formatTimestamp(report.lastEventAt)],
     ['Ordering rule', report.orderingRule],

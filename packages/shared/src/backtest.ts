@@ -522,8 +522,9 @@ export const backtestDatasetReportSchema = z.object({
   /** Number of event-time values shared by two or more eligible rounds. */
   duplicateEventTimes: z.number().int().min(0),
   /**
-   * Eligible rounds whose stored event time is not in the canonical UTC form the app writes
-   * (YYYY-MM-DDTHH:MM:SS.sssZ). Text ordering is only reliable for that form.
+   * Eligible rounds whose stored event time is not a real instant in the canonical UTC form
+   * the app writes (YYYY-MM-DDTHH:MM:SS.sssZ, as produced by Date#toISOString). Text
+   * ordering is only reliable for that form; impossible dates such as 30 February count here.
    */
   nonCanonicalEventTimes: z.number().int().min(0),
   firstEventAt: z.string().nullable(),
