@@ -1,5 +1,6 @@
 import { Route, Routes } from 'react-router';
 import { AppShell } from './components/AppShell';
+import { AnalyticsPage } from './pages/analytics/AnalyticsPage';
 import { DataSourcesPage } from './pages/DataSourcesPage';
 import { MethodologyPage } from './pages/MethodologyPage';
 import { NotFoundPage } from './pages/NotFoundPage';
@@ -23,6 +24,7 @@ export function App() {
           <Route path="import" element={<ImportPage />} />
           <Route path="imports" element={<ImportHistoryPage />} />
         </Route>
+        <Route path="analytics" element={<AnalyticsPage />} />
         <Route path="strategy-lab" element={<StrategyLabPage />} />
         <Route path="simulations" element={<SimulationsPage />} />
         <Route path="data-sources" element={<DataSourcesPage />} />

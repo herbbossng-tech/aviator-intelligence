@@ -4,6 +4,7 @@ import type { Db } from '../db/connection.js';
 import { PreviewStore } from '../imports/previewStore.js';
 import { createErrorHandler, notFoundHandler } from './errors.js';
 import { loopbackHostGuard } from './hostGuard.js';
+import { analyticsRouter } from './routes/analytics.js';
 import { dataRouter } from './routes/data.js';
 import { importsRouter } from './routes/imports.js';
 import { roundsRouter } from './routes/rounds.js';
@@ -47,6 +48,7 @@ export function createApp({
   app.use('/api', dataRouter(db, config));
   app.use('/api', roundsRouter(db, log));
   app.use('/api', importsRouter(db, previewStore, log));
+  app.use('/api', analyticsRouter(db));
 
   app.use(notFoundHandler);
   app.use(createErrorHandler(log));

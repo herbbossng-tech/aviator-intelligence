@@ -153,21 +153,15 @@ export function parseMultiplierInput(value: unknown): FieldResult<number> {
  * times are never guessed to be UTC. Returns the instant normalised to UTC with
  * millisecond precision (e.g. 2026-01-31T13:05:09.000Z), or null when absent.
  */
-export function parseEventAtInput(value: unknown, now: Date): FieldResult<string | null> {
-  const field = 'eventAt';
-  if (isBlank(value)) return { ok: true, value: null };
-  if (typeof value !== 'string') {
-    return fail('invalid_timestamp', field, `eventAt must be text, got ${describeInput(value)}`);
-  }
-  const text = value.trim();
+/**
+ * Strictly parses an ISO-8601 date-time WITH an explicit offset (Z or ±hh:mm, at most
+ * ±14:00) into epoch milliseconds. Returns 'format' if the text does not match the
+ * accepted shape and 'invalid' if it matches but names an impossible date, time or offset.
+ * Shared by event-time validation and the analytics date-range filters.
+ */
+export function parseIsoDateTimeWithOffset(text: string): number | 'format' | 'invalid' {
   const m = ISO_DATE_TIME.exec(text);
-  if (!m) {
-    return fail(
-      'invalid_timestamp',
-      field,
-      `eventAt ${describeInput(text)} must be ISO-8601 with an explicit offset, e.g. 2026-01-31T14:05:09Z or 2026-01-31T15:05:09+01:00`,
-    );
-  }
+  if (!m) return 'format';
   const [year, month, day, hour, minute] = [m[1], m[2], m[3], m[4], m[5]].map(Number) as [
     number,
     number,
@@ -190,16 +184,35 @@ export function parseEventAtInput(value: unknown, now: Date): FieldResult<string
   // UTC offsets run from -14:00 to +14:00 inclusive: at 14 hours the minutes must be 00.
   const validOffset =
     offsetMinutes <= 59 && (offsetHours < 14 || (offsetHours === 14 && offsetMinutes === 0));
-  if (!validDate || hour > 23 || minute > 59 || second > 59 || !validOffset) {
+  if (!validDate || hour > 23 || minute > 59 || second > 59 || !validOffset) return 'invalid';
+  return (
+    Date.UTC(year, month - 1, day, hour, minute, second, millis) -
+    offsetSign * (offsetHours * 60 + offsetMinutes) * 60_000
+  );
+}
+
+export function parseEventAtInput(value: unknown, now: Date): FieldResult<string | null> {
+  const field = 'eventAt';
+  if (isBlank(value)) return { ok: true, value: null };
+  if (typeof value !== 'string') {
+    return fail('invalid_timestamp', field, `eventAt must be text, got ${describeInput(value)}`);
+  }
+  const text = value.trim();
+  const instant = parseIsoDateTimeWithOffset(text);
+  if (instant === 'format') {
+    return fail(
+      'invalid_timestamp',
+      field,
+      `eventAt ${describeInput(text)} must be ISO-8601 with an explicit offset, e.g. 2026-01-31T14:05:09Z or 2026-01-31T15:05:09+01:00`,
+    );
+  }
+  if (instant === 'invalid') {
     return fail(
       'invalid_timestamp',
       field,
       `eventAt ${describeInput(text)} is not a valid date and time`,
     );
   }
-  const instant =
-    Date.UTC(year, month - 1, day, hour, minute, second, millis) -
-    offsetSign * (offsetHours * 60 + offsetMinutes) * 60_000;
   if (instant < Date.parse(EARLIEST_EVENT_AT)) {
     return fail('invalid_timestamp', field, `eventAt ${describeInput(text)} is before 2000-01-01`);
   }

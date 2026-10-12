@@ -11,6 +11,7 @@
 │       ├── legs.ts             two-leg strategy config schema + labelled SAMPLE config
 │       ├── rounds.ts           canonical round record validation (the single path for CSV, JSON and manual entry)
 │       ├── imports.ts          import limits, preview/confirm/history contracts
+│       ├── analytics.ts        descriptive statistics (quantiles, P(M ≥ t), Wilson CI, histogram) + API contract
 │       ├── simulation.ts       simulation settings, virtual risk stops, dataset selection, settleLeg()
 │       └── api.ts              request/response contracts shared by API and dashboard
 ├── apps/server/                @aviator/server: local Express API
@@ -19,7 +20,7 @@
 │   │   ├── db/connection.ts    better-sqlite3 connection + pragmas
 │   │   ├── db/migrate.ts       transactional, versioned migration runner
 │   │   ├── db/migrations/      append-only migrations (001_initial_schema, 002_round_imports)
-│   │   ├── db/repositories/    all SQL lives here (rounds, imports, overview)
+│   │   ├── db/repositories/    all SQL lives here (rounds, imports, analytics, overview)
 │   │   ├── imports/            CSV/JSON parsing, record classification, preview store, transactional confirm
 │   │   ├── http/               app factory, routes, consistent JSON errors
 │   │   ├── scripts/db-migrate.ts
@@ -49,18 +50,19 @@ The dashboard validates every response against the shared Zod schemas. A malform
 
 ## API
 
-| Method & path                              | Purpose                              | Notes                                                                                                                |
-| ------------------------------------------ | ------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/health`                          | Liveness, DB check, schema version   | `200` ok, `503` degraded                                                                                             |
-| `GET /api/meta`                            | App name, version, mode, currency    | Declares `liveObservation: not_connected`, `realMoneyExecution: not_supported`                                       |
-| `GET /api/overview`                        | Counts from stored data              | `latestVirtualBankroll` is `null` until a run has actually completed                                                 |
-| `GET /api/rounds`                          | Paginated, filterable rounds         | `limit` 1–200, `offset`, `source`, `q`, `importId`, `minMultiplier`, `maxMultiplier`, `sort`; unknown params → `400` |
-| `GET /api/rounds/sources`                  | Source labels with counts            | Synthetic rows excluded                                                                                              |
-| `POST /api/rounds`                         | Manual entry of one round            | `201`; `400` field errors; `409 duplicate_source_id` / `possible_duplicate`                                          |
-| `POST /api/imports/preview`                | Validate and preview a CSV/JSON file | Writes nothing; body limit 5 MB, content limit 2 MiB                                                                 |
-| `DELETE /api/imports/previews/:id`         | Discard a preview                    | `204`                                                                                                                |
-| `POST /api/imports`                        | Confirm a preview by `previewId`     | One transaction; `201`, `404 preview_not_found`, `409 duplicate_import`, `500 database_write_failed`                 |
-| `GET /api/imports`, `GET /api/imports/:id` | Import history                       | Newest first                                                                                                         |
+| Method & path                              | Purpose                                       | Notes                                                                                                                                                                                                      |
+| ------------------------------------------ | --------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/health`                          | Liveness, DB check, schema version            | `200` ok, `503` degraded                                                                                                                                                                                   |
+| `GET /api/meta`                            | App name, version, mode, currency             | Declares `liveObservation: not_connected`, `realMoneyExecution: not_supported`                                                                                                                             |
+| `GET /api/overview`                        | Counts from stored data                       | `latestVirtualBankroll` is `null` until a run has actually completed                                                                                                                                       |
+| `GET /api/rounds`                          | Paginated, filterable rounds                  | `limit` 1–200, `offset`, `source`, `q`, `importId`, `minMultiplier`, `maxMultiplier`, `sort`; unknown params → `400`                                                                                       |
+| `GET /api/rounds/sources`                  | Source labels with counts                     | Synthetic rows excluded                                                                                                                                                                                    |
+| `POST /api/rounds`                         | Manual entry of one round                     | `201`; `400` field errors; `409 duplicate_source_id` / `possible_duplicate`                                                                                                                                |
+| `POST /api/imports/preview`                | Validate and preview a CSV/JSON file          | Writes nothing; body limit 5 MB, content limit 2 MiB                                                                                                                                                       |
+| `DELETE /api/imports/previews/:id`         | Discard a preview                             | `204`                                                                                                                                                                                                      |
+| `POST /api/imports`                        | Confirm a preview by `previewId`              | One transaction; `201`, `404 preview_not_found`, `409 duplicate_import`, `500 database_write_failed`                                                                                                       |
+| `GET /api/imports`, `GET /api/imports/:id` | Import history                                | Newest first                                                                                                                                                                                               |
+| `GET /api/analytics`                       | Descriptive statistics of the selected rounds | Read-only; filters `source`, `importId`, `minMultiplier`, `maxMultiplier`, `eventFrom` (incl.), `eventTo` (excl.), `thresholds`; `422 dataset_too_large` above 5M rounds. See [ANALYTICS.md](ANALYTICS.md) |
 
 The full import contract, including limits and error codes, is in [DATA_IMPORT.md](DATA_IMPORT.md).
 
@@ -114,7 +116,7 @@ Migration 002 (`round_imports`) is additive: it adds the `data_imports` columns,
 - **No users, sessions or credentials tables.** The app is single-user and local, and it must never store betting credentials, cookies, tokens or browser state.
 - **No dataset/collection table yet.** Runs select data by round-id range or import id (`datasetSelectionSchema`). An import already acts as a named dataset.
 - **Manual entries create no `data_imports` row.** Their provenance is the round's `source` label, and `import_id` is NULL.
-- **No stored derived statistics.** Analytics will be computed from rounds and ledgers rather than cached.
+- **No stored derived statistics.** Analytics are computed on request from the stored rounds: SQLite returns a `GROUP BY multiplier_x100` frequency table, and `computeAnalytics` in `@aviator/shared` derives every statistic. Nothing is cached or written. Round filters for the browser and analytics share one SQL builder (`roundFilterSql`).
 
 ## Numeric representation and rounding policy
 
