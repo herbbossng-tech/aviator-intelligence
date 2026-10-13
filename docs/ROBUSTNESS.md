@@ -29,6 +29,21 @@ Everything runs on the server through the shared engine (`packages/shared/src/ro
 
 The full-sample replay must equal the run's own stored result. The server checks this before saving.
 
+## Runs with a staking progression
+
+A run whose legs use staking progressions (see [PROGRESSION.md](PROGRESSION.md)) is analysed with the same blocks and the same rules. Only the stakes differ.
+
+> A progression only changes stake sizes. It does not create a predictive edge, and no progression guarantees recovery or profitability. Every block is still in-sample history.
+
+- **Replay.** The full sample and every block are replayed with the run's **stored** staking plan, through the backtest's replay loop. Each leg keeps its own progression state. The backtest's funding order, bankroll skips, permanent limits and custom-sequence end apply unchanged. The full-sample replay must still equal the run's stored summary, progression summary included.
+- **State at block boundaries: reset.** Every block restarts each progression at its first step, with no cycle loss and no limit reached (`statePolicy: "reset_each_block"`), just as it restarts the bankroll, drawdown, streak and stop state.
+  - A losing cycle still open at the end of one block does **not** continue into the next.
+  - A leg stopped by a limit in one block is active again at the start of the next.
+  - The full-sample replay, by contrast, carries the progression through the whole period, exactly as the run did.
+- **Why reset, not carry.** Carrying a progression's step into a block that restarts the bankroll would mix two starting points: a fresh bankroll with a stake sized for losses that block never saw. Resetting keeps each block an answer to the same question as before: "how would this configuration have done if started at the beginning of that period?". The two policies are not equivalent; only reset is implemented.
+- **Recorded in the result.** The result gains a `staking` block, present only for progression runs. It records the state policy and, per leg, the mode and configuration key. Each block's summary also carries its own progression summary (final status, highest step placed, skips), and the page shows where a limit stopped a leg within a block.
+- **Flat-stake runs are unchanged.** Their results have no `staking` block, and the algorithm (`chronological-blocks/v1`) and result format (`1`) versions are unchanged.
+
 ## Assumptions and limitations
 
 - **Few, short periods.** With at most 10 blocks there are at most 10 historical periods to compare. Variation between them is descriptive; no statistical test is applied, and none of it is a probability.
@@ -80,9 +95,10 @@ Migration **005** adds `simulation_robustness_analyses`. It is additive: earlier
 - block indices are 0…W−1, and boundaries are contiguous with no gap or overlap, start at 0, end at the sample size, and equal the chronological partition exactly;
 - event times are canonical UTC, increase within each block and strictly between blocks, and match the full sample at both ends;
 - every summary reconciles exactly (ending = starting + net, net = returned − staked, round counts, leg totals), starts from the configured bankroll and matches the strategy's legs;
+- every summary's progression block is present exactly for the plan's legs, with the plan's modes and configuration keys, and its skips and completed cycles reconcile with the leg's totals; the result's `staking` block identifies exactly the plan's progressions, and is absent for a flat-stake run;
 - the full-sample summary equals the run's stored summary.
 
-When creating, the block boundaries are also checked against the source rounds' ids and event times. When reading, the stored configuration and fingerprint must still equal the run's. Any failure is reported, never repaired: 500 `robustness_failed` on creation (nothing stored), or 500 `stored_data_invalid` on reading (the row is left untouched and the cause is logged on the server).
+When creating, the block boundaries are also checked against the source rounds' ids and event times. When reading, the stored configuration (staking plan included) and fingerprint must still equal the run's. Snapshots written before staking existed have no `staking` key, which is read as flat stakes, so no migration was needed. Any failure is reported, never repaired: 500 `robustness_failed` on creation (nothing stored), or 500 `stored_data_invalid` on reading (the row is left untouched and the cause is logged on the server).
 
 ## API
 
@@ -95,18 +111,18 @@ All endpoints are loopback-only, like the rest of the API.
 | `GET /api/simulations/:id/robustness/:analysisId`    | One analysis of this run.                                                                                             |
 | `DELETE /api/simulations/:id/robustness/:analysisId` | `204`; `404` if it does not exist.                                                                                    |
 
-| Code                            | Status | Meaning                                                          |
-| ------------------------------- | ------ | ---------------------------------------------------------------- |
-| `validation_error`              | 400    | Invalid body or query                                            |
-| `simulation_not_found`          | 404    | Unknown run                                                      |
-| `robustness_analysis_not_found` | 404    | Unknown analysis for this run                                    |
-| `run_not_analyzable`            | 409    | The run failed and has no results                                |
-| `dataset_changed`               | 409    | The run's rounds changed since it ran, or while the analysis ran |
-| `robustness_sample_too_small`   | 422    | Too few rounds for the requested blocks (`details.maxWindows`)   |
-| `robustness_too_large`          | 422    | Over the work limit                                              |
-| `simulation_out_of_range`       | 422    | Exact results would leave the safe integer range                 |
-| `robustness_failed`             | 500    | Computation, verification or storage failed; nothing was stored  |
-| `stored_data_invalid`           | 500    | A stored analysis failed verification on read                    |
+| Code                            | Status | Meaning                                                           |
+| ------------------------------- | ------ | ----------------------------------------------------------------- |
+| `validation_error`              | 400    | Invalid body or query                                             |
+| `simulation_not_found`          | 404    | Unknown run                                                       |
+| `robustness_analysis_not_found` | 404    | Unknown analysis for this run                                     |
+| `run_not_analyzable`            | 409    | The run failed and has no results (progression runs are accepted) |
+| `dataset_changed`               | 409    | The run's rounds changed since it ran, or while the analysis ran  |
+| `robustness_sample_too_small`   | 422    | Too few rounds for the requested blocks (`details.maxWindows`)    |
+| `robustness_too_large`          | 422    | Over the work limit                                               |
+| `simulation_out_of_range`       | 422    | Exact results would leave the safe integer range                  |
+| `robustness_failed`             | 500    | Computation, verification or storage failed; nothing was stored   |
+| `stored_data_invalid`           | 500    | A stored analysis failed verification on read                     |
 
 ## User interface
 
@@ -120,9 +136,9 @@ Open a completed run and choose **Open robustness analysis** (`/simulations/:id/
 ## Tests
 
 ```bash
-npx vitest run packages/shared/src/robustness.test.ts packages/shared/src/robustnessVerify.test.ts
-npx vitest run apps/server/test/robustness-api.test.ts
-npx vitest run apps/web/test/robustness.test.tsx
+npx vitest run packages/shared/src/robustness.test.ts packages/shared/src/robustnessVerify.test.ts packages/shared/src/analysisProgression.test.ts
+npx vitest run apps/server/test/robustness-api.test.ts apps/server/test/progression-analyses-api.test.ts
+npx vitest run apps/web/test/robustness.test.tsx apps/web/test/progressionAnalyses.test.tsx
 npm run check   # formatting, lint, typecheck, all tests, build
 ```
 

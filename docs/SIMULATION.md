@@ -148,7 +148,7 @@ By default every enabled leg stakes its configured `stakeMinor` every round ("fl
 
 **Summary.** With a plan, `summary.progression` reports per leg: mode, configuration key (FNV-1a 64-bit of the canonical configuration), final status (`active`, `blocked`, `exhausted`) and block reason, final step and open cycle loss, highest step placed, completed (won) cycles, skips for insufficient bankroll, skips after a permanent stop, and the round from which the leg was stopped. Per-leg `skipped` counts include both kinds of skip; per-leg `stakeMinor` remains the configured (base) stake. Runs without a plan have no `progression` field.
 
-**Analyses.** The uncertainty and robustness analyses currently support flat-stake runs only. For a run with a staking plan they are refused with 409 `run_not_analyzable`, and their limits report 0.
+**Analyses.** Runs with a staking plan can be analysed like any other. The uncertainty analysis replays the stored plan on every resampled path, and the robustness analysis replays it on the full sample and on every block. Each path and each block starts every progression afresh. See [UNCERTAINTY.md](UNCERTAINTY.md#runs-with-a-staking-progression) and [ROBUSTNESS.md](ROBUSTNESS.md#runs-with-a-staking-progression).
 
 ## Reported metrics
 
@@ -243,5 +243,5 @@ The routes sit behind the same loopback Host guard as the rest of the API.
 - The replay ignores anything the recorded data cannot show: timing, latency, manual cashouts, platform limits, and whether a cashout would actually have been accepted.
 - A backtest over one historical sequence says nothing about the distribution of outcomes on other sequences. The optional uncertainty analysis ([UNCERTAINTY.md](UNCERTAINTY.md)) resamples the same observations under an IID bootstrap model. It does not add new information, and it does not report confidence intervals. The optional robustness analysis ([ROBUSTNESS.md](ROBUSTNESS.md)) replays separate chronological periods of the same data; those periods are in-sample, not out-of-sample validation.
 - Selections larger than 100,000 eligible rounds must be narrowed.
-- Staking progressions: only the `reset_to_base` win policy; uncertainty and robustness analyses of progression runs are not supported yet; progressions are configured per run (configurations are not yet saved for reuse).
+- Staking progressions: only the `reset_to_base` win policy; progressions are configured per run (configurations are not yet saved for reuse).
 - `limit`, `offset` and `importId` query parameters use the same lenient number parsing as the rest of the API (for example `1e1` is read as 10). Run ids in the path are strict. Making query parsing strict across every endpoint is deferred.

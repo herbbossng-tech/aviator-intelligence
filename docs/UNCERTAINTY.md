@@ -45,6 +45,24 @@ Pass 5 adds a sensitivity analysis to completed virtual backtests: how much woul
 - **Path length.** Each path has length n, so path results are comparable with the historical run, which replayed up to n rounds.
 - **What is not modelled.** The settlement assumptions of the backtest apply unchanged (see [SIMULATION.md](SIMULATION.md)). Timing, latency and platform limits are not modelled.
 
+## Runs with a staking progression
+
+A run whose legs use staking progressions (see [PROGRESSION.md](PROGRESSION.md) and [SIMULATION.md](SIMULATION.md#staking-progressions)) is analysed with exactly the same method. Only the stakes differ.
+
+> A progression only changes stake sizes. It does not create a predictive edge, and no progression guarantees recovery of losses or profitability. Resampled figures for a progression run describe this model and this sample, nothing more.
+
+- **What is resampled.** The same thing as for any run: n multipliers drawn with replacement from the run's n eligible multipliers. The draws do not depend on the staking plan, so a flat run and a progression run over the same sample with the same seed resample identical paths.
+- **What is replayed.** Each path is replayed with the run's **stored** staking plan, as validated when the run was created and checked again when it is read. Missing settings are never filled in from defaults, and progression stakes are never replaced by flat stakes.
+- **Progression state on each path.** Every path starts each progression afresh: first step, no cycle loss, not stopped by any limit (`statePolicy: "reset_each_path"`). Within a path, each leg's progression then follows only that leg's own results on that path, with the backtest's exact rules: legs funded A then B from the bankroll at the start of the round, transient bankroll skips that do not count as losses, permanent step, stake and exposure limits, and the end of a custom sequence. Nothing carries from one path to another.
+- **Why this matters for a progression.** Progression stakes grow with consecutive losses. Under the IID assumption, losing streaks appear only as often as independent draws produce them. If real rounds were dependent, streak risk could be understated or overstated, and this analysis cannot tell.
+- **Extra figures.** The summary gains a `staking` block, present only for progression runs. For each progression leg it records:
+  - the mode and the configuration key (FNV-1a 64-bit of the canonical configuration);
+  - `pathsStoppedByLimit`: paths that ended with that leg stopped by a permanent limit or an exhausted sequence;
+  - `pathsWithBankrollSkips`: paths on which the bankroll could not fund at least one of its stakes;
+  - the denominator, P.
+- **Flat-stake runs are unchanged.** Their summaries have no `staking` block, and their stored configuration snapshots have the same keys as before.
+- **Algorithm version.** It is still `iid-bootstrap/xoshiro128ss-fmix32/v1`, because the random-number and resampling rules are unchanged. The replayed configuration, including the staking plan, is recorded in the snapshot and in the `staking` block.
+
 ## Reproducibility
 
 Each analysis records:
@@ -53,9 +71,9 @@ Each analysis records:
 - the **number of paths**
 - the **algorithm version** (`iid-bootstrap/xoshiro128ss-fmix32/v1`)
 - the run's **dataset fingerprint**
-- a snapshot of the run's strategy, settings and dataset request
+- a snapshot of the run's strategy, settings and dataset request, plus its staking plan when it has one
 
-The same seed, path count, sample (fingerprint) and algorithm version reproduce **identical** results.
+The same seed, path count, sample (fingerprint), configuration (staking plan included) and algorithm version reproduce **identical** results.
 
 The random numbers are specified exactly. `Math.random()` is never used.
 
@@ -151,6 +169,14 @@ Migration 004 adds the `simulation_analyses` table. It is additive: earlier migr
   - an analysis can only be inserted for a **completed** run with the **same dataset fingerprint**
   - rows **cannot be updated** (deleting an analysis is allowed and affects no other record)
 - **Deleting a run** cascades to its analyses.
+- **Checked on every read.** A stored analysis is shown only if:
+  - its configuration snapshot (strategy, settings, dataset request and staking plan) equals its run's;
+  - its fingerprint, seed and path count agree;
+  - its `staking` block names exactly the run's progressions, and is absent for a flat-stake run.
+
+  Otherwise the read returns 500 `stored_data_invalid`. The row is left untouched.
+
+- **No migration was needed for progressions.** The snapshot is JSON. Snapshots written before staking existed simply have no `staking` key, which is read as flat stakes.
 
 ## API
 
@@ -167,7 +193,7 @@ Errors:
 | `validation_error`        | 400    | Invalid paths or seed, or an unknown field           |
 | `simulation_not_found`    | 404    | Unknown run                                          |
 | `analysis_not_found`      | 404    | Unknown analysis, or one that belongs to another run |
-| `run_not_analyzable`      | 409    | The run failed                                       |
+| `run_not_analyzable`      | 409    | The run failed (runs with progressions are accepted) |
 | `dataset_changed`         | 409    | The sample no longer matches the run's fingerprint   |
 | `analysis_too_large`      | 422    | Over the work limit; the details give `maxPaths`     |
 | `simulation_out_of_range` | 422    | Exact results would exceed the safe integer range    |

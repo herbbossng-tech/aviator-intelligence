@@ -20,7 +20,12 @@ import { PageHeader } from '../../components/PageHeader';
 import { Panel } from '../../components/Panel';
 import { formatCount, formatMinorAmount, formatTimestamp } from '../../lib/format';
 import { formatPercent } from '../../lib/stats';
-import { formatSignedMinor } from './display';
+import {
+  BOOTSTRAP_PROGRESSION_NOTE,
+  describeProgression,
+  formatSignedMinor,
+  PROGRESSION_MODE_TEXT,
+} from './display';
 
 export const UNCERTAINTY_CAUTION =
   'Resampled results are conditional on the IID bootstrap model and on this one historical sample. They are not a prediction of future rounds, not a real-world probability of loss, and not evidence that a configuration is profitable.';
@@ -252,7 +257,21 @@ function SampleAndMethod({ run }: { run: SimulationRunDto }) {
           <li>
             Ranges below are empirical quantiles of the resampled paths, not confidence intervals.
           </li>
+          {run.staking === null ? null : <li>{BOOTSTRAP_PROGRESSION_NOTE}</li>}
         </ul>
+        {run.staking === null ? null : (
+          <Rows
+            rows={(['A', 'B'] as const).map((k) => {
+              const config = run.staking!.legs[k];
+              return [
+                `Leg ${k} staking`,
+                config === null
+                  ? 'Flat (same stake every round)'
+                  : describeProgression(config, run.settings.currency),
+              ];
+            })}
+          />
+        )}
       </Panel>
     </div>
   );
@@ -580,6 +599,38 @@ function Results({ run, analysis }: { run: SimulationRunDto; analysis: Simulatio
             </table>
           </div>
         </section>
+
+        {s.staking ? (
+          <section aria-label="Staking progressions on resampled paths">
+            <h3 className="mb-2 text-sm font-medium text-slate-200">
+              Staking progressions{' '}
+              <span className="font-normal text-slate-500">
+                (restarted at the first step on every path)
+              </span>
+            </h3>
+            <Rows
+              rows={(['A', 'B'] as const).flatMap((k): [string, ReactNode][] => {
+                const leg = s.staking!.legs[k];
+                if (leg === null) return [[`Leg ${k}`, 'Flat stakes']];
+                return [
+                  [`Leg ${k}`, `${PROGRESSION_MODE_TEXT[leg.mode]} · ${leg.configKey}`],
+                  [
+                    `Leg ${k}: paths where a limit stopped it`,
+                    share(leg.pathsStoppedByLimit, leg.denominator),
+                  ],
+                  [
+                    `Leg ${k}: paths with a stake the bankroll could not fund`,
+                    share(leg.pathsWithBankrollSkips, leg.denominator),
+                  ],
+                ];
+              })}
+            />
+            <p className="mt-2 text-xs text-slate-500">
+              Shares of resampled paths under this model, not chances for future rounds. A stopped
+              leg stakes nothing for the rest of its path; a skipped stake is not a loss.
+            </p>
+          </section>
+        ) : null}
 
         <p className="text-xs text-slate-500">
           Sample: {formatCount(s.sample.size)} observed rounds,{' '}

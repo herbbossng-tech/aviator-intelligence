@@ -126,35 +126,29 @@ function RunView({ run }: { run: SimulationRunDto }) {
             title="Uncertainty and robustness"
             subtitle="How sensitive is this result to the particular historical sequence?"
           >
-            {run.staking !== null ? (
-              <p className="text-sm text-slate-400">
-                Not available for this run: uncertainty and robustness analyses currently support
-                flat-stake runs only, and this run uses a staking progression.
-              </p>
-            ) : (
-              <>
-                <p className="text-sm text-slate-400">
-                  Resample this run&apos;s {formatCount(run.dataset?.roundsEligible ?? 0)} observed
-                  multipliers (IID bootstrap) and replay the same configuration on many resampled
-                  paths, or replay separate chronological periods of the same data one at a time.
-                  Sensitivity checks under stated assumptions, not predictions.
-                </p>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <Link
-                    to={`/simulations/${run.id}/uncertainty`}
-                    className="inline-block rounded-md bg-slate-800 px-3 py-2 text-sm text-slate-200 ring-1 ring-slate-700 hover:bg-slate-700"
-                  >
-                    Open uncertainty analysis
-                  </Link>
-                  <Link
-                    to={`/simulations/${run.id}/robustness`}
-                    className="inline-block rounded-md bg-slate-800 px-3 py-2 text-sm text-slate-200 ring-1 ring-slate-700 hover:bg-slate-700"
-                  >
-                    Open robustness analysis
-                  </Link>
-                </div>
-              </>
-            )}
+            <p className="text-sm text-slate-400">
+              Resample this run&apos;s {formatCount(run.dataset?.roundsEligible ?? 0)} observed
+              multipliers (IID bootstrap) and replay the same configuration on many resampled paths,
+              or replay separate chronological periods of the same data one at a time. Sensitivity
+              checks under stated assumptions, not predictions.
+              {run.staking === null
+                ? ''
+                : ' Staking progressions restart from their first step on every resampled path and in every period.'}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link
+                to={`/simulations/${run.id}/uncertainty`}
+                className="inline-block rounded-md bg-slate-800 px-3 py-2 text-sm text-slate-200 ring-1 ring-slate-700 hover:bg-slate-700"
+              >
+                Open uncertainty analysis
+              </Link>
+              <Link
+                to={`/simulations/${run.id}/robustness`}
+                className="inline-block rounded-md bg-slate-800 px-3 py-2 text-sm text-slate-200 ring-1 ring-slate-700 hover:bg-slate-700"
+              >
+                Open robustness analysis
+              </Link>
+            </div>
           </Panel>
 
           {summary.progression && run.staking ? (

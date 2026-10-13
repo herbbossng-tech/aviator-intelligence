@@ -18,7 +18,7 @@ import { PageHeader } from '../../components/PageHeader';
 import { Panel } from '../../components/Panel';
 import { formatCount, formatMinorAmount, formatTimestamp } from '../../lib/format';
 import { formatPercent } from '../../lib/stats';
-import { formatSignedMinor } from './display';
+import { formatSignedMinor, ROBUSTNESS_PROGRESSION_NOTE, SKIP_REASON_TEXT } from './display';
 
 export const ROBUSTNESS_CAUTION =
   "Historical robustness analysis: each block replays one separate period of this run's own recorded rounds, starting again from the configured bankroll. Blocks are in-sample history, not out-of-sample validation. They are not predictions of future rounds and not evidence that a configuration is profitable.";
@@ -202,6 +202,7 @@ function Dataset({ run }: { run: SimulationRunDto }) {
             Block results are independent replays: they are not added together and do not sum to the
             full-sample result, which carries the bankroll through the whole period.
           </li>
+          {run.staking === null ? null : <li>{ROBUSTNESS_PROGRESSION_NOTE}</li>}
           <li>The server computes and verifies every result before saving it.</li>
         </ul>
       </Panel>
@@ -307,6 +308,18 @@ function Results({ run, analysis }: { run: SimulationRunDto; analysis: Robustnes
             ['Rounds', formatCount(analysis.sampleSize)],
             ['Algorithm version', <code key="a">{analysis.algorithmVersion}</code>],
             ['Result format version', String(analysis.resultSchemaVersion)],
+            ...(result.staking
+              ? ([
+                  [
+                    'Progression state',
+                    'Restarted at the first step in every block and in the full sample',
+                  ],
+                  ...(['A', 'B'] as const).map((k): [string, ReactNode] => [
+                    `Leg ${k} progression key`,
+                    result.staking!.legs[k]?.configKey ?? 'Flat stakes',
+                  ]),
+                ] as [string, ReactNode][])
+              : []),
             [
               'Dataset fingerprint (SHA-256)',
               <span key="fp" className="font-mono text-xs break-all">
@@ -423,7 +436,17 @@ function BlockRow({
         {formatSignedMinor(s.netProfitMinor, currency)}
       </td>
       <td className="py-2 pr-4 text-right font-mono">{formatPercent(s.maxDrawdownFraction)}</td>
-      <td className="py-2 pr-4 text-slate-300">{STOP_REASON_TEXT[s.stopReason]}</td>
+      <td className="py-2 pr-4 text-slate-300">
+        {STOP_REASON_TEXT[s.stopReason]}
+        {(['A', 'B'] as const).map((k) => {
+          const p = s.progression?.legs[k];
+          return p && p.finalBlockReason !== null ? (
+            <div key={k} className="text-xs text-slate-400">
+              Leg {k}: {SKIP_REASON_TEXT[p.finalBlockReason]}
+            </div>
+          ) : null;
+        })}
+      </td>
     </tr>
   );
 }
