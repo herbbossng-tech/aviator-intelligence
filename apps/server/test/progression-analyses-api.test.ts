@@ -361,7 +361,7 @@ describe('older databases', () => {
         ).lastInsertRowid,
     );
     const before = legacy.prepare('SELECT * FROM simulation_analyses').all();
-    expect(migrate(legacy)).toEqual({ applied: [6], currentVersion: 6 });
+    expect(migrate(legacy)).toEqual({ applied: [6, 7], currentVersion: 7 });
     expect(legacy.prepare('SELECT * FROM simulation_analyses').all()).toEqual(before);
     const legacyServer = await startTestServer(legacy, () => {});
     try {

@@ -20,6 +20,7 @@ Pass 5 adds a sensitivity analysis to completed virtual backtests: how much woul
 | Storage                        | `apps/server/src/db/repositories/analyses.ts`, migration 004 |
 | API routes                     | `apps/server/src/http/routes/simulations.ts`                 |
 | UI                             | `/simulations/:id/uncertainty` (`UncertaintyPage.tsx`)       |
+| Shared result presentation     | `apps/web/src/pages/simulations/resamplingDisplay.tsx`       |
 
 ## Method: IID empirical bootstrap
 
@@ -202,9 +203,36 @@ Errors:
 
 All routes sit behind the loopback Host guard.
 
+## Second method: moving-block bootstrap
+
+The same page offers a second, separate method: the non-circular **moving-block bootstrap**, which keeps the recorded order inside stretches of b consecutive rounds. Its design, owner decisions and API are in [BLOCK_BOOTSTRAP_DESIGN.md](BLOCK_BOOTSTRAP_DESIGN.md). The IID bootstrap described above is unchanged: its sampling, random stream, results, version, storage, endpoints and UI behaviour are the same as before.
+
+**Choosing the method.** A "Resampling method" control at the top of the page offers "Independent rounds (IID bootstrap)", the default, and "Blocks of consecutive rounds (moving-block bootstrap)". The choice is kept in the URL (`?method=moving-block`; no parameter means IID). Each method has its own form, list and results, and switching unmounts the other method's form, so no setting typed under one method is ever submitted by the other.
+
+**Block length.**
+
+- The form pre-fills the default b from the list endpoint (`defaultBlockLength`: the cube root of n, rounded half up, then clamped) and states that this is a convention, not the best choice for the data.
+- It accepts whole numbers from 2 to the list endpoint's `maxBlockLength` (⌊n / 10⌋, at most 500). Fractions, signs, exponents and blanks are refused locally, with the error linked to the field.
+- The server remains authoritative: its `block_length_too_large` and `analysis_too_large` replies are shown on the field concerned and in the form's error notice, and the settings are kept.
+- Below the fields, a live line shows how each path is built for the chosen b (for example "15 blocks of 4 rounds", or "142 blocks of 7 rounds plus one of 6") and the number of possible block starts. It says in advance when there will be fewer than 100 possible starts (the `few_candidate_blocks` warning), and when b is shorter than a progression's step limit.
+- A sample under 20 rounds (the list returns `maxBlockLength: 0`) shows an explanation instead of the form.
+
+**Comparing the methods.** Under the selector, a "How the two methods differ" table describes both methods in parallel columns: sampling unit, whether recorded order is kept, main purpose, settings required, losing-streak reporting, and assumptions and limitations. Notes below it state that block paths can repeat rounds, blocks may overlap and blocks never wrap around. They also state that neither method predicts multipliers, shows an edge, ranks configurations or shows that rounds depend on each other. The selected method's column is marked "(selected)" in text.
+
+**Results.** Block results are labelled "Moving-block results", carry the badge "Resampled (block bootstrap, b = …)", and list the method, paths, sample size n, block length b, blocks per path (K and the last block's length L), possible block starts (S = n − b + 1), seed, algorithm version and timestamps. They show the same distributions, net-outcome counts, configured boundaries, stop reasons and per-leg staking figures as IID results, plus:
+
+- **Longest losing streak (rounds):** for each path, the most consecutive rounds with a negative combined net outcome across both legs; a break-even round ends the streak. The observed value is the run's own figure. A streak can continue across the join between two blocks. IID results do not report it.
+- For each progression leg, its step limit beside b. When b is shorter, the page says that streaks long enough to reach the limit can only form by chance across block joins.
+- Every server warning, verbatim. `few_candidate_blocks` also gets a plain-language explanation: with few possible starts, many paths are built from the same stretches and the spread can look narrower than one sample supports.
+
+**Saved analyses.** Block analyses are listed in their own "Saved block analyses" table (newest 50, with block length, paths and seed), never mixed with IID analyses. Choosing one shows it from the loaded list without another request or any recomputation. An analysis linked by URL (`&analysis=<id>`) that is not in the list is read once from `GET …/block-analyses/:analysisId`; a 404 is shown as "not found".
+
+**What it is not.** Keeping order inside a block is a robustness check, not a claim that rounds influence each other. Results are conditional on the one sample, b, and the run's strategy and staking. Comparing values of b, or the two methods, is a sensitivity check. It predicts nothing and shows no edge.
+
 ## Deferred
 
-- **Block or stationary bootstrap**, which would keep short-range order. It needs a block-length choice, which should be justified first.
+- **Stationary bootstrap** (random block lengths) and data-driven block-length selection.
+- **A side-by-side table of IID and block figures** for the same run (first sketched in the block design, [§9](BLOCK_BOOTSTRAP_DESIGN.md#9-user-interface)); not built. The page compares the methods themselves (below the selector), not their results.
 - **Confidence intervals** for figures such as the boundary frequency. Any such interval must state exactly what it estimates.
 - **Charts.** The results are presented as tables only, for now.
 - **Background jobs** for larger analyses.

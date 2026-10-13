@@ -589,7 +589,7 @@ describe('simulation_robustness_analyses integrity', () => {
       rounds: legacy.prepare('SELECT * FROM rounds ORDER BY id').all(),
       runs: legacy.prepare('SELECT * FROM simulation_runs ORDER BY id').all(),
     };
-    expect(migrate(legacy)).toEqual({ applied: [5, 6], currentVersion: 6 });
+    expect(migrate(legacy)).toEqual({ applied: [5, 6, 7], currentVersion: 7 });
     expect(legacy.prepare('SELECT * FROM rounds ORDER BY id').all()).toEqual(before.rounds);
     expect(
       withoutColumns(

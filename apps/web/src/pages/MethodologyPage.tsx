@@ -44,6 +44,12 @@ export function MethodologyPage() {
               conditional on that model and are not probabilities of real-world loss.
             </li>
             <li>
+              The moving-block bootstrap resamples stretches of consecutive recorded rounds instead
+              of single rounds. Keeping that order is a sensitivity check, not a claim that rounds
+              depend on each other; its figures are conditional on the sample, the block length and
+              the configuration, and are not predictions or evidence of an edge.
+            </li>
+            <li>
               Robustness analyses replay separate chronological periods of a run&apos;s own data,
               each from the starting bankroll. They are in-sample history, not out-of-sample
               validation, and block results are not added together.
