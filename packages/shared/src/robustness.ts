@@ -20,7 +20,8 @@ import type { SimulationSettings } from './simulation.js';
  *
  * Method (user-facing documentation follows with the API and UI increments):
  * - The caller supplies the dataset's eligible rounds in replay order (one source, strictly
- *   increasing event time), exactly as for runBacktest. The order is never changed here.
+ *   increasing event time), as for runBacktest, with every event time in canonical UTC form
+ *   so that text order is chronological order. The order is never changed here.
  * - The rounds are split into W contiguous, non-overlapping blocks of nearly equal size,
  *   using only the round count and that order: never the multipliers or any outcome.
  * - The full sample and each block are replayed through the same replay loop as the
@@ -56,6 +57,30 @@ export const robustnessOptionsSchema = z
   })
   .strict();
 export type RobustnessOptions = z.infer<typeof robustnessOptionsSchema>;
+
+const CANONICAL_UTC_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/**
+ * Event times must be real instants in the canonical UTC form the app writes
+ * (Date#toISOString). Only then does the text order checked by assertReplayableRounds equal
+ * chronological order: '2026-01-01T00:00:30+01:00' sorts after '2026-01-01T00:00:29.000Z' as
+ * text but is an hour earlier. Throws RangeError.
+ */
+function assertCanonicalEventTimes(sample: readonly BacktestRound[]): void {
+  for (const round of sample) {
+    const text = round.eventAt;
+    const instant = typeof text === 'string' ? Date.parse(text) : Number.NaN;
+    if (
+      !CANONICAL_UTC_INSTANT.test(text) ||
+      Number.isNaN(instant) ||
+      new Date(instant).toISOString() !== text
+    ) {
+      throw new RangeError(
+        `Round ${round.roundId} has an event time that is not a real instant in canonical UTC form (YYYY-MM-DDTHH:MM:SS.sssZ), so chronological order cannot be guaranteed`,
+      );
+    }
+  }
+}
 
 function assertCount(value: number, what: string, min: number): void {
   if (!Number.isSafeInteger(value) || value < min) {
@@ -169,7 +194,8 @@ export interface BlockRobustnessResult {
  * everything (options, size and workload limits, round order and multipliers, strategy and
  * settings) before replaying anything. Throws RobustnessLimitError for limits and malformed
  * counts, ZodError for invalid options or configuration, RangeError for unordered or invalid
- * rounds, and BacktestLimitError if exact results would leave the safe integer range.
+ * rounds (including event times not in canonical UTC form), and BacktestLimitError if exact
+ * results would leave the safe integer range.
  */
 export function runBlockRobustness(
   sample: readonly BacktestRound[],
@@ -187,6 +213,7 @@ export function runBlockRobustness(
   const plan = partitionChronological(n, windows);
   const roundStepsBudgeted = assertRobustnessWorkload(n, 1);
   assertReplayableRounds(sample);
+  assertCanonicalEventTimes(sample);
   const multipliers = new Int32Array(n);
   for (let i = 0; i < n; i++) {
     multipliers[i] = roundMultiplierX100Schema.parse(sample[i]!.multiplierX100);

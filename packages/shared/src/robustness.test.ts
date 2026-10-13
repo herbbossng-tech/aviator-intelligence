@@ -474,6 +474,30 @@ describe('runBlockRobustness: limits and validation before any replay', () => {
     expect(replays.count).toBe(0);
   });
 
+  it('refuses event times whose text order is not chronological order (self-review regression)', () => {
+    const sample = rounds(pseudoMultipliers(60, 6));
+    // As text, '2026-01-01T00:00:30+01:00' sorts between rounds 30 and 32
+    // ('...00:00:29.000Z' < it < '...00:00:31.000Z'), but the instant is 2025-12-31T23:00:30Z,
+    // earlier than every other round, so the blocks would not be chronological. runBacktest
+    // accepts this input (canonical form is left to its caller); this engine enforces it.
+    const offset = sample.map((r, i) =>
+      i === 30 ? { ...r, eventAt: '2026-01-01T00:00:30+01:00' } : r,
+    );
+    expect(() => runBacktest(offset, strategy(), settings())).not.toThrow();
+    expect(() => runBlockRobustness(offset, strategy(), settings(), { windows: 2 })).toThrow(
+      /canonical UTC form/,
+    );
+    // Each of these keeps the text order increasing, so only the canonical-form check rejects it.
+    for (const eventAt of ['2026-01-01T00:00:59Z', '2026-01-01T00:00:59.000+00:00']) {
+      const variant = sample.map((r, i) => (i === 59 ? { ...r, eventAt } : r));
+      expect(
+        () => runBlockRobustness(variant, strategy(), settings(), { windows: 2 }),
+        eventAt,
+      ).toThrow(/canonical UTC form/);
+    }
+    expect(replays.count).toBe(0);
+  });
+
   it('refuses invalid strategies and settings without replaying', () => {
     const sample = rounds(pseudoMultipliers(60, 6));
     expect(() =>
