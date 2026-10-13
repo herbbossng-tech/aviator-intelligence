@@ -1,6 +1,6 @@
 # Design: order-preserving block bootstrap (progression increment 4)
 
-> **Status: design approved by the owner; implementation in progress.** Steps 1 and 2 ([§13](#13-implementation-sequence)) exist locally and are unmerged: the sampling primitives (`blockBootstrap.ts`) and the shared analysis engine (`blockBootstrapAnalysis.ts`). Storage, the API and the UI do not exist yet.
+> **Status: design approved by the owner; implementation in progress.** Steps 1–3 ([§13](#13-implementation-sequence)) exist locally and are unmerged: the sampling primitives (`blockBootstrap.ts`), the shared analysis engine (`blockBootstrapAnalysis.ts`), and storage with the API (migration 007, [§8.5](#85-step-3-implementation)). The UI does not exist yet.
 >
 > It proposes how to add a second resampling method to the uncertainty analysis. The existing IID bootstrap ([UNCERTAINTY.md](UNCERTAINTY.md)) and the chronological robustness analysis ([ROBUSTNESS.md](ROBUSTNESS.md)) are unchanged by this design and remain supported. The owner's decisions on [§14](#14-decisions-for-the-owner) are recorded there.
 
@@ -250,6 +250,84 @@ Recommended: a separate resource, so the IID API stays exactly as it is ([§14, 
 
 Errors are as in [§5.6](#56-insufficient-or-invalid-data). Ordinary invalid input is 400 or 422, never 500. The routes sit behind the existing loopback Host guard.
 
+### 8.5 Step 3 implementation
+
+As implemented locally; it follows §8.1–8.4.
+
+**Migration 007** (`apps/server/src/db/migrations/007_block_bootstrap_analyses.ts`, name `block_bootstrap_analyses`) is additive. It creates `simulation_block_bootstrap_analyses`; migrations 001–006 and their tables and rows are untouched.
+
+| Column                        | Rule                                           |
+| ----------------------------- | ---------------------------------------------- |
+| `id`                          | Primary key                                    |
+| `simulation_run_id`           | FK → runs, `ON DELETE CASCADE`                 |
+| `status`                      | `'completed'` only                             |
+| `method`                      | `'moving_block_bootstrap'` only                |
+| `algorithm_version`           | 1–100 characters                               |
+| `seed`                        | 0 … 2^53 − 1                                   |
+| `paths`                       | ≥ 1                                            |
+| `sample_size`                 | ≥ 20                                           |
+| `block_length`                | 2 … 500, and `block_length · 10 ≤ sample_size` |
+| `dataset_sha256`              | 64 lowercase hex characters                    |
+| `config_json`, `summary_json` | Valid JSON                                     |
+| `created_at`, `completed_at`  | Timestamps                                     |
+
+There is an index on (`simulation_run_id`, `id`). As in migration 004:
+
+- a trigger allows rows only for a completed run with the same dataset fingerprint;
+- another trigger refuses updates.
+
+**Routes.** Nested under the run, like the IID and robustness analyses. The IID routes are unchanged.
+
+| Route                                                 | Behaviour                                                                                                                                                                                                                            |
+| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /api/simulations/:id/block-analyses`            | Strict body `{ paths, seed, blockLength }` (`blockAnalysisRequestSchema`). `blockLength` must be an integer from 2 to 500, otherwise 400. Returns `201` with the stored analysis.                                                    |
+| `GET /api/simulations/:id/block-analyses`             | `limit` (1–50, default 20) and `offset`. Returns `{ items, total, maxPaths, maxBlockLength, defaultBlockLength, sampleSize }`. For a sample under 20 rounds, `maxPaths` and `maxBlockLength` are 0 and `defaultBlockLength` is null. |
+| `GET /api/simulations/:id/block-analyses/:analysisId` | One analysis of this run. Otherwise 404 `block_analysis_not_found`.                                                                                                                                                                  |
+
+The list endpoint is included because the step 4 workflow needs it, as the IID uncertainty page does: previous analyses, plus the run's limits and default block length. There are no update or delete endpoints.
+
+**Response shape** (`blockAnalysisDtoSchema`):
+
+```
+{ id, simulationRunId, status: "completed", method: "moving_block_bootstrap", createdAt,
+  completedAt, algorithmVersion, seed, paths, blockLength, sampleSize, datasetSha256, summary }
+```
+
+`summary` is `blockBootstrapSummarySchema`. The IID DTO and its fields are unchanged.
+
+**Creation** (`runAndStoreBlockAnalysis` in `apps/server/src/simulations/blockAnalysis.ts`). This follows the robustness service's stronger pattern:
+
+1. The run must be completed, with a summary and a fingerprint; otherwise 409 `run_not_analyzable`.
+2. Limits are checked from the run's recorded sample size **before the dataset is read**:
+   - 422 `analysis_sample_too_small` (details `sampleSize`, `minSampleSize`);
+   - 422 `block_length_too_large` (details `maxBlockLength`, `sampleSize`);
+   - 422 `analysis_too_large` (details `maxPaths`, `sampleSize`).
+3. The dataset is read in a read transaction, and its fingerprint must equal the run's; otherwise 409 `dataset_changed`.
+4. The limits are checked again against the rounds actually read.
+5. `runBlockBootstrap` computes the result outside any transaction, with the run's stored strategy, settings and staking plan. There is no second engine.
+6. In one IMMEDIATE write transaction, the rounds are fingerprinted again (409 on a change) and the row is inserted.
+7. The row is read back through the read-time checks.
+
+Any failure stores nothing:
+
+- 422 `simulation_out_of_range` when exact results would leave the safe integer range;
+- otherwise 500 `block_analysis_failed`, with a generic message. The cause is logged on the server only.
+
+**Read-time checks** (`apps/server/src/db/repositories/blockAnalyses.ts`). Every read of a stored row checks:
+
+- the method, and that the algorithm version is one this build interprets (only `moving-block-bootstrap/xoshiro128ss-fmix32/v1`; any other version is refused, not reinterpreted);
+- the configuration snapshot (strategy, settings, dataset request, staking plan) and the fingerprint against the run;
+- the summary against `blockBootstrapSummarySchema`;
+- the seed, paths, sample size, block length and version columns against the summary;
+- the layout (K, L, S) against `movingBlockLayout(sample_size, block_length)`;
+- that every distribution is ordered;
+- that the stop-reason, net-outcome and observed counts each sum to P;
+- that the staking metadata names exactly the run's progressions.
+
+A row that fails is reported as 500 `stored_data_invalid`, with details `{ simulationRunId, blockAnalysisId }`. The row is never repaired, skipped or recomputed, and the cause is logged on the server only.
+
+**Limitation.** Strategy and staking configurations are not part of the request. They come from the run, which validated them when it was created and validates them again on every read (500 `stored_data_invalid` if a stored run is malformed). Requests carrying them, or any other unknown field, are refused with 400.
+
 ## 9. User interface
 
 - **Where.** The existing uncertainty page (`/simulations/:id/uncertainty`) gains a **method** choice: "Independent rounds (IID bootstrap)", the default and unchanged, or "Blocks of consecutive rounds (block bootstrap)".
@@ -321,13 +399,13 @@ Each test names the defect it is designed to catch. The fixtures are synthetic a
 
 Each increment ends with green repository checks (`format:check`, `lint`, `typecheck`, `test`, `build`, `check`, `git diff --check`) and no change to IID results (frozen v1 tests).
 
-| #   | Increment              | Scope                                                                                                                                                                                                                                                                                                                                                                                          | Acceptance criteria                                                                                          |
-| --- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| 1   | Sampling primitives    | `packages/shared`: block-length rules and default, domain-separated generator, `fillMovingBlockPath`, constants and errors                                                                                                                                                                                                                                                                     | Tests 1–6 and 11 pass; IID frozen outputs unchanged; no server or UI change                                  |
-| 2   | Block bootstrap engine | `packages/shared`: `runBlockBootstrap`, streak distribution, resampling metadata, warnings, summary schema. Implemented without refactoring the IID aggregation (the owner ruled out IID refactoring). `blockBootstrapAnalysis.ts` has its own aggregation, built from the IID module's exported quantile rule, limits, setting schema and summary sub-schemas, so `bootstrap.ts` is unchanged | Tests 7–10 pass; IID results byte-identical (frozen tests); progression semantics as in §6                   |
-| 3   | Persistence and API    | Migration 007, repository with read-time validation, service with limit checks, routes and error codes                                                                                                                                                                                                                                                                                         | Tests 12–15 pass; existing rows untouched; old databases migrate; ordinary invalid input never gives 500     |
-| 4   | UI and documentation   | Method choice, block length, K and L, method text, comparison table, results labels; UNCERTAINTY.md section; tracker                                                                                                                                                                                                                                                                           | Test 16 passes; copy reviewed against §3 and §9; no claim of prediction or edge                              |
-| 5   | Final review and PR    | Full diff review, repeated test runs, draft PR                                                                                                                                                                                                                                                                                                                                                 | All checks green locally and in CI; PR opened as a draft for the owner; nothing merged without authorisation |
+| #   | Increment                                           | Scope                                                                                                                                                                                                                                                                                                                                                                                          | Acceptance criteria                                                                                          |
+| --- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 1   | Sampling primitives                                 | `packages/shared`: block-length rules and default, domain-separated generator, `fillMovingBlockPath`, constants and errors                                                                                                                                                                                                                                                                     | Tests 1–6 and 11 pass; IID frozen outputs unchanged; no server or UI change                                  |
+| 2   | Block bootstrap engine                              | `packages/shared`: `runBlockBootstrap`, streak distribution, resampling metadata, warnings, summary schema. Implemented without refactoring the IID aggregation (the owner ruled out IID refactoring). `blockBootstrapAnalysis.ts` has its own aggregation, built from the IID module's exported quantile rule, limits, setting schema and summary sub-schemas, so `bootstrap.ts` is unchanged | Tests 7–10 pass; IID results byte-identical (frozen tests); progression semantics as in §6                   |
+| 3   | Persistence and API (implemented locally, see §8.5) | Migration 007, repository with read-time validation, service with limit checks, routes and error codes                                                                                                                                                                                                                                                                                         | Tests 12–15 pass; existing rows untouched; old databases migrate; ordinary invalid input never gives 500     |
+| 4   | UI and documentation                                | Method choice, block length, K and L, method text, comparison table, results labels; UNCERTAINTY.md section; tracker                                                                                                                                                                                                                                                                           | Test 16 passes; copy reviewed against §3 and §9; no claim of prediction or edge                              |
+| 5   | Final review and PR                                 | Full diff review, repeated test runs, draft PR                                                                                                                                                                                                                                                                                                                                                 | All checks green locally and in CI; PR opened as a draft for the owner; nothing merged without authorisation |
 
 ## 14. Decisions for the owner
 

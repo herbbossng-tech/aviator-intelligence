@@ -10,15 +10,18 @@ export class StoredDataError extends Error {
       simulationRunId: number;
       simulationAnalysisId?: number;
       robustnessAnalysisId?: number;
+      blockAnalysisId?: number;
     },
     cause: unknown,
   ) {
     super(
-      record.robustnessAnalysisId !== undefined
-        ? `Stored robustness analysis ${record.robustnessAnalysisId} of run ${record.simulationRunId} could not be read`
-        : record.simulationAnalysisId === undefined
-          ? `Stored simulation run ${record.simulationRunId} could not be read`
-          : `Stored analysis ${record.simulationAnalysisId} of run ${record.simulationRunId} could not be read`,
+      record.blockAnalysisId !== undefined
+        ? `Stored block bootstrap analysis ${record.blockAnalysisId} of run ${record.simulationRunId} could not be read`
+        : record.robustnessAnalysisId !== undefined
+          ? `Stored robustness analysis ${record.robustnessAnalysisId} of run ${record.simulationRunId} could not be read`
+          : record.simulationAnalysisId === undefined
+            ? `Stored simulation run ${record.simulationRunId} could not be read`
+            : `Stored analysis ${record.simulationAnalysisId} of run ${record.simulationRunId} could not be read`,
       { cause },
     );
     this.name = 'StoredDataError';

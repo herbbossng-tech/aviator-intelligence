@@ -4,6 +4,7 @@ import { sql as simulationBacktests } from './003_simulation_backtests.js';
 import { sql as simulationAnalyses } from './004_simulation_analyses.js';
 import { sql as robustnessAnalyses } from './005_robustness_analyses.js';
 import { sql as backtestProgressions } from './006_backtest_progressions.js';
+import { sql as blockBootstrapAnalyses } from './007_block_bootstrap_analyses.js';
 
 export interface Migration {
   version: number;
@@ -19,4 +20,5 @@ export const MIGRATIONS: readonly Migration[] = [
   { version: 4, name: 'simulation_analyses', sql: simulationAnalyses },
   { version: 5, name: 'robustness_analyses', sql: robustnessAnalyses },
   { version: 6, name: 'backtest_progressions', sql: backtestProgressions },
+  { version: 7, name: 'block_bootstrap_analyses', sql: blockBootstrapAnalyses },
 ];

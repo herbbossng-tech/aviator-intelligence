@@ -4,7 +4,11 @@ import {
   analysesQuerySchema,
   backtestDatasetQuerySchema,
   backtestRequestSchema,
+  blockAnalysisRequestSchema,
+  defaultBlockLength,
   ledgerQuerySchema,
+  maxBlockLength,
+  MIN_BLOCK_BOOTSTRAP_SAMPLE,
   MAX_BACKTEST_ROUNDS,
   maxPathsForSample,
   maxWindowsForSample,
@@ -21,12 +25,14 @@ import {
   listRuns,
 } from '../../db/repositories/simulations.js';
 import { getAnalysis, listAnalyses } from '../../db/repositories/analyses.js';
+import { getBlockAnalysis, listBlockAnalyses } from '../../db/repositories/blockAnalyses.js';
 import {
   deleteRobustnessAnalysis,
   getRobustnessAnalysis,
   listRobustnessAnalyses,
 } from '../../db/repositories/robustness.js';
 import { runAndStoreAnalysis } from '../../simulations/analysis.js';
+import { runAndStoreBlockAnalysis } from '../../simulations/blockAnalysis.js';
 import { runAndStoreRobustness } from '../../simulations/robustness.js';
 import { runAndStoreBacktest } from '../../simulations/service.js';
 import { HttpError } from '../errors.js';
@@ -112,6 +118,43 @@ export function simulationsRouter(
     const parsed = runIdSchema.safeParse(req.params.analysisId);
     const analysis = parsed.success ? getAnalysis(db, run, parsed.data) : null;
     if (!analysis) throw new HttpError(404, 'analysis_not_found', 'No such analysis for this run.');
+    res.json(analysis);
+  });
+
+  // Moving-block bootstrap analyses of a completed run (a separate resource and table from the
+  // IID analyses above, which are unchanged). Virtual money only; the server computes and
+  // validates every result itself (clients only choose paths, seed and block length).
+  router.post('/simulations/:id/block-analyses', (req, res) => {
+    const run = findRun(req.params.id);
+    const request = blockAnalysisRequestSchema.parse(req.body);
+    res.status(201).json(runAndStoreBlockAnalysis(db, run, request, { now, maxRounds, log }));
+  });
+
+  router.get('/simulations/:id/block-analyses', (req, res) => {
+    const query = analysesQuerySchema.parse(req.query);
+    const run = findRun(req.params.id);
+    const sampleSize = run.status === 'completed' ? (run.dataset?.roundsEligible ?? null) : null;
+    const eligible = sampleSize !== null && sampleSize >= MIN_BLOCK_BOOTSTRAP_SAMPLE;
+    res.json({
+      ...listBlockAnalyses(db, run, query),
+      maxPaths: eligible ? maxPathsForSample(sampleSize) : 0,
+      maxBlockLength: eligible ? maxBlockLength(sampleSize) : 0,
+      defaultBlockLength: eligible ? defaultBlockLength(sampleSize) : null,
+      sampleSize,
+    });
+  });
+
+  router.get('/simulations/:id/block-analyses/:analysisId', (req, res) => {
+    const run = findRun(req.params.id);
+    const parsed = runIdSchema.safeParse(req.params.analysisId);
+    const analysis = parsed.success ? getBlockAnalysis(db, run, parsed.data) : null;
+    if (!analysis) {
+      throw new HttpError(
+        404,
+        'block_analysis_not_found',
+        'No such block bootstrap analysis for this run.',
+      );
+    }
     res.json(analysis);
   });
 

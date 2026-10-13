@@ -443,7 +443,7 @@ describe('simulation_analyses integrity', () => {
       runs: legacy.prepare('SELECT * FROM simulation_runs ORDER BY id').all(),
       ledger: legacy.prepare('SELECT * FROM ledger_entries ORDER BY id').all(),
     };
-    expect(migrate(legacy)).toEqual({ applied: [4, 5, 6], currentVersion: 6 });
+    expect(migrate(legacy)).toEqual({ applied: [4, 5, 6, 7], currentVersion: 7 });
     expect(legacy.prepare('SELECT * FROM rounds ORDER BY id').all()).toEqual(before.rounds);
     // Existing columns are untouched; columns added later are NULL.
     const runs = legacy.prepare('SELECT * FROM simulation_runs ORDER BY id').all();

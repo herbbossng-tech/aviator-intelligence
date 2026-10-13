@@ -10,6 +10,8 @@ import {
   blockPathGenerator,
   blockPathIndices,
   drawBlockStarts,
+  MAX_BLOCK_LENGTH,
+  MIN_BLOCK_LENGTH,
   MOVING_BLOCK_ALGORITHM_VERSION,
   movingBlockLayout,
   type MovingBlockLayout,
@@ -300,3 +302,47 @@ export function runBlockBootstrap(
     return { statePolicy: 'reset_each_path', legs: { A: leg('A'), B: leg('B') } };
   }
 }
+
+// ---------------------------------------------------------------------------
+// API contracts (step 3)
+// ---------------------------------------------------------------------------
+
+/**
+ * POST /api/simulations/:id/block-analyses. Strict. The block length is checked here against
+ * the rules that hold for every sample (2 … 500); the sample-dependent maximum ⌊n / 10⌋ is
+ * checked by the server against the run's sample.
+ */
+export const blockAnalysisRequestSchema = blockAnalysisSettingsSchema.extend({
+  blockLength: z.number().int().min(MIN_BLOCK_LENGTH).max(MAX_BLOCK_LENGTH),
+});
+export type BlockAnalysisRequest = z.infer<typeof blockAnalysisRequestSchema>;
+
+export const blockAnalysisDtoSchema = z.object({
+  id: z.number().int(),
+  simulationRunId: z.number().int(),
+  status: z.literal('completed'),
+  method: z.literal('moving_block_bootstrap'),
+  createdAt: z.string(),
+  completedAt: z.string(),
+  algorithmVersion: z.string(),
+  seed: z.number().int(),
+  paths: z.number().int(),
+  blockLength: z.number().int(),
+  sampleSize: z.number().int(),
+  datasetSha256: z.string(),
+  summary: blockBootstrapSummarySchema,
+});
+export type BlockAnalysisDto = z.infer<typeof blockAnalysisDtoSchema>;
+
+export const blockAnalysesListSchema = z.object({
+  items: z.array(blockAnalysisDtoSchema),
+  total: z.number().int(),
+  /** Largest path count allowed for this run's sample (the same work limit as IID). */
+  maxPaths: z.number().int(),
+  /** Largest block length for this run's sample, or 0 if the sample is too small. */
+  maxBlockLength: z.number().int(),
+  /** The default block length for this run's sample, or null if it is too small. */
+  defaultBlockLength: z.number().int().nullable(),
+  sampleSize: z.number().int().nullable(),
+});
+export type BlockAnalysesList = z.infer<typeof blockAnalysesListSchema>;

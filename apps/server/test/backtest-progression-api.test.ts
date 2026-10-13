@@ -465,7 +465,7 @@ describe('migration 006', () => {
     ]);
     const runId = insertLegacyRun(legacy, backtestRequestSchema.parse(request()));
     const ledgerBefore = legacy.prepare('SELECT COUNT(*) AS n FROM ledger_entries').get();
-    expect(migrate(legacy)).toEqual({ applied: [6], currentVersion: 6 });
+    expect(migrate(legacy)).toEqual({ applied: [6, 7], currentVersion: 7 });
     expect(legacy.prepare('SELECT COUNT(*) AS n FROM ledger_entries').get()).toEqual(ledgerBefore);
     const legacyServer = await startTestServer(legacy);
     try {

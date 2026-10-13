@@ -75,6 +75,7 @@ describe('database initialisation', () => {
       'rounds',
       'schema_migrations',
       'simulation_analyses',
+      'simulation_block_bootstrap_analyses',
       'simulation_robustness_analyses',
       'simulation_runs',
       'strategies',

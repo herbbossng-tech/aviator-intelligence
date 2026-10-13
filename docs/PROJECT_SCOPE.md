@@ -150,25 +150,28 @@ Aviator Intelligence is a local-first research and simulation dashboard for the 
   - The design is complete and approved.
   - Step 1 (sampling primitives in `packages/shared/src/blockBootstrap.ts`, with deterministic tests) is implemented and committed locally on `feat/moving-block-bootstrap`.
   - Step 2 (the shared analysis engine `runBlockBootstrap` in `packages/shared/src/blockBootstrapAnalysis.ts`, replaying every path through the canonical replay loop) is implemented and committed locally on the same branch.
+  - Step 3 (migration 007, block-analysis storage with read-time checks, and the `/api/simulations/:id/block-analyses` routes) is implemented and committed locally on the same branch.
   - Nothing for increment 4 is pushed, opened as a PR, merged or verified on `main`.
-  - Storage and API, UI, and the final review (steps 3–5) are not started.
+  - The UI (step 4) and the final review (step 5) are not started.
 - A progression changes stake sizes only. It does not predict rounds, create an edge or guarantee recovery or profit; all amounts are virtual.
 
 ### Progression tracker
 
-| Increment                                  | Implemented         | Tested      | Committed   | Pushed | Merged                  | Verified on `main`           |
-| ------------------------------------------ | ------------------- | ----------- | ----------- | ------ | ----------------------- | ---------------------------- |
-| 1 — progression engine                     | Yes                 | Yes         | Yes         | Yes    | Yes (PR #8, `79e7873`)  | Yes (CI passed on `79e7873`) |
-| 2 — progressions in backtests              | Yes                 | Yes         | Yes         | Yes    | Yes (PR #9, `82d0644`)  | Yes (CI passed on `82d0644`) |
-| 3 — progression-aware analyses             | Yes                 | Yes         | Yes         | Yes    | Yes (PR #10, `d8f5d4c`) | Yes (CI passed on `d8f5d4c`) |
-| 4 — block bootstrap: design                | Complete (approved) | —           | Yes (local) | No     | No                      | No                           |
-| 4 — step 1: sampling primitives            | Yes                 | Yes (local) | Yes (local) | No     | No                      | No                           |
-| 4 — step 2: shared analysis engine         | Yes                 | Yes (local) | Yes (local) | No     | No                      | No                           |
-| 4 — steps 3–5: storage and API, UI, review | Not started         | No          | No          | No     | No                      | No                           |
+| Increment                                   | Implemented         | Tested      | Committed   | Pushed | Merged                  | Verified on `main`           |
+| ------------------------------------------- | ------------------- | ----------- | ----------- | ------ | ----------------------- | ---------------------------- |
+| 1 — progression engine                      | Yes                 | Yes         | Yes         | Yes    | Yes (PR #8, `79e7873`)  | Yes (CI passed on `79e7873`) |
+| 2 — progressions in backtests               | Yes                 | Yes         | Yes         | Yes    | Yes (PR #9, `82d0644`)  | Yes (CI passed on `82d0644`) |
+| 3 — progression-aware analyses              | Yes                 | Yes         | Yes         | Yes    | Yes (PR #10, `d8f5d4c`) | Yes (CI passed on `d8f5d4c`) |
+| 4 — block bootstrap: design                 | Complete (approved) | —           | Yes (local) | No     | No                      | No                           |
+| 4 — step 1: sampling primitives             | Yes                 | Yes (local) | Yes (local) | No     | No                      | No                           |
+| 4 — step 2: shared analysis engine          | Yes                 | Yes (local) | Yes (local) | No     | No                      | No                           |
+| 4 — step 3: storage and API (migration 007) | Yes                 | Yes (local) | Yes (local) | No     | No                      | No                           |
+| 4 — step 4: UI                              | Not started         | No          | No          | No     | No                      | No                           |
+| 4 — step 5: final review and PR             | Not started         | No          | No          | No     | No                      | No                           |
 
 No pull request has been opened for increment 4.
 
-Next required approval: the owner's review of the local step 2 implementation, and authorisation to begin step 3.
+Next required approval: the owner's review of the local step 3 implementation, and authorisation to begin step 4.
 
 ## Planned for later phases
 
