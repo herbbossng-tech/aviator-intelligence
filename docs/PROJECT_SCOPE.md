@@ -136,6 +136,10 @@ Aviator Intelligence is a local-first research and simulation dashboard for the 
   - docs: [ROBUSTNESS.md](ROBUSTNESS.md)
 - **Not included yet:** configuration variants (parameter sensitivity), out-of-sample or walk-forward validation, rolling windows, charts.
 
+## In progress: staking progressions
+
+- **Increment 1 — engine** (`packages/shared/src/progression.ts`): fixed, Martingale, capped Martingale and custom-sequence progressions as a pure, deterministic state machine with exact integer stakes, explicit step, stake, exposure and bankroll limits that block rather than bend, and result binding to each decision. Not yet connected to backtests, the API, persistence or the UI. See [PROGRESSION.md](PROGRESSION.md).
+
 ## Planned for later phases
 
 Each phase needs separate approval.
