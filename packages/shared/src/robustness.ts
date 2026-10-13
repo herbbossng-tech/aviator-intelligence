@@ -278,3 +278,304 @@ export const blockRobustnessResultSchema = z.object({
     }),
   ),
 });
+
+// ---------------------------------------------------------------------------
+// Stored results: versions and strict verification
+// ---------------------------------------------------------------------------
+
+/** Algorithm versions this build can interpret. */
+export const SUPPORTED_ROBUSTNESS_ALGORITHM_VERSIONS: readonly string[] = [
+  ROBUSTNESS_ALGORITHM_VERSION,
+];
+/** Version of the stored result format (the JSON written by persistence). */
+export const ROBUSTNESS_RESULT_SCHEMA_VERSION = 1;
+export const SUPPORTED_ROBUSTNESS_RESULT_SCHEMA_VERSIONS: readonly number[] = [
+  ROBUSTNESS_RESULT_SCHEMA_VERSION,
+];
+
+/** A result failed verification: corrupted, inconsistent, unsupported or mismatched. */
+export class RobustnessResultError extends Error {
+  constructor(readonly issues: readonly string[]) {
+    super(`Robustness result failed verification: ${issues.slice(0, 5).join('; ')}`);
+    this.name = 'RobustnessResultError';
+  }
+}
+
+/** What a result must agree with. Everything here comes from trusted server-side sources. */
+export interface RobustnessExpectations {
+  windows: number;
+  sampleSize: number;
+  strategy: TwoLegStrategyConfig;
+  settings: SimulationSettings;
+  /** The run's stored summary over the same dataset; the full-sample replay must equal it. */
+  observedSummary?: BacktestSummary;
+  /** The source rounds in replay order, when available (block ids and times must match). */
+  rounds?: readonly Pick<BacktestRound, 'roundId' | 'eventAt'>[];
+}
+
+function isCanonicalInstant(text: unknown): boolean {
+  if (typeof text !== 'string' || !CANONICAL_UTC_INSTANT.test(text)) return false;
+  const instant = Date.parse(text);
+  return !Number.isNaN(instant) && new Date(instant).toISOString() === text;
+}
+
+/** Structural equality of JSON-compatible values, ignoring object key order. */
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const ka = Object.keys(a);
+  const kb = Object.keys(b);
+  if (ka.length !== kb.length) return false;
+  return ka.every(
+    (k) =>
+      Object.prototype.hasOwnProperty.call(b, k) &&
+      sameJson((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
+  );
+}
+
+function checkSummary(
+  issues: string[],
+  where: string,
+  s: BacktestSummary,
+  roundCount: number,
+  { strategy, settings }: Pick<RobustnessExpectations, 'strategy' | 'settings'>,
+): void {
+  const fail = (message: string) => issues.push(`${where}: ${message}`);
+  if (s.currency !== settings.currency) fail('currency differs from the settings');
+  if (s.startingBankrollMinor !== settings.startingBankrollMinor) {
+    fail('did not start from the configured bankroll');
+  }
+  if (s.roundsAvailable !== roundCount) fail(`roundsAvailable is not ${roundCount}`);
+  if (s.roundsReplayed < 0 || s.roundsReplayed + s.roundsNotReplayed !== s.roundsAvailable) {
+    fail('replayed and not-replayed rounds do not add up to the rounds available');
+  }
+  if (settings.risk.maxRounds !== null && s.roundsReplayed > settings.risk.maxRounds) {
+    fail('replayed more rounds than maxRounds allows');
+  }
+  if (s.endingBankrollMinor < 0) fail('ending bankroll is negative');
+  if (s.endingBankrollMinor !== s.startingBankrollMinor + s.netProfitMinor) {
+    fail('ending bankroll != starting bankroll + net');
+  }
+  if (s.netProfitMinor !== s.totalReturnedMinor - s.totalStakedMinor) {
+    fail('net != returned - staked');
+  }
+  if (s.roundsWithProfit + s.roundsWithLoss + s.roundsBreakEven !== s.roundsReplayed) {
+    fail('profit, loss and break-even rounds do not add up to the rounds replayed');
+  }
+  if (
+    s.lowestBankrollMinor > s.endingBankrollMinor ||
+    s.peakBankrollMinor < s.endingBankrollMinor ||
+    s.peakBankrollMinor < s.startingBankrollMinor ||
+    s.maxDrawdownMinor > s.peakBankrollMinor - s.lowestBankrollMinor
+  ) {
+    fail('peak, lowest, ending bankroll and drawdown are inconsistent');
+  }
+  const keys = s.legs.map((l) => l.leg).join(',');
+  if (keys !== 'A,B') {
+    fail('legs must be A then B');
+    return;
+  }
+  let staked = 0;
+  let returned = 0;
+  for (const leg of s.legs) {
+    const configured = strategy.legs[leg.leg];
+    if (
+      leg.label !== configured.label ||
+      leg.enabled !== configured.enabled ||
+      leg.stakeMinor !== configured.stakeMinor ||
+      leg.cashoutTargetX100 !== configured.cashoutTargetX100
+    ) {
+      fail(`leg ${leg.leg} does not match the strategy`);
+    }
+    if (leg.wins + leg.losses !== leg.placed) fail(`leg ${leg.leg}: wins + losses != placed`);
+    if (leg.netMinor !== leg.grossReturnMinor - leg.stakedMinor) {
+      fail(`leg ${leg.leg}: net != returned - staked`);
+    }
+    if (!leg.enabled && (leg.placed !== 0 || leg.skipped !== 0)) {
+      fail(`leg ${leg.leg} is disabled but has entries`);
+    }
+    staked += leg.stakedMinor;
+    returned += leg.grossReturnMinor;
+  }
+  if (staked !== s.totalStakedMinor || returned !== s.totalReturnedMinor) {
+    fail('leg totals do not add up to the summary totals');
+  }
+}
+
+/**
+ * Verifies a robustness result against what it must agree with, beyond basic types:
+ * supported version; declared windows, sample size and workload; one block per window, with
+ * indices, boundaries and sizes exactly equal to partitionChronological (so blocks are
+ * contiguous, non-overlapping and cover the sample once); canonical, chronological event
+ * times consistent across blocks and the full sample; every summary reconciled exactly and
+ * matching the strategy and settings; and, when supplied, the run's stored summary and the
+ * source rounds. Throws RobustnessResultError listing every problem; never repairs anything.
+ */
+export function verifyBlockRobustnessResult(
+  value: unknown,
+  expected: RobustnessExpectations,
+): BlockRobustnessResult {
+  const parsed = blockRobustnessResultSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new RobustnessResultError(
+      parsed.error.issues.slice(0, 20).map((i) => `${i.path.join('.') || 'result'}: ${i.message}`),
+    );
+  }
+  const result = parsed.data;
+  const issues: string[] = [];
+  if (!SUPPORTED_ROBUSTNESS_ALGORITHM_VERSIONS.includes(result.algorithmVersion)) {
+    issues.push(`unsupported algorithm version ${JSON.stringify(result.algorithmVersion)}`);
+  }
+  if (result.windows !== expected.windows) {
+    issues.push(`declares ${result.windows} windows; ${expected.windows} were requested`);
+  }
+  if (result.sampleSize !== expected.sampleSize) {
+    issues.push(`declares ${result.sampleSize} rounds; the sample has ${expected.sampleSize}`);
+  }
+  if (result.blocks.length !== result.windows) {
+    issues.push(`has ${result.blocks.length} blocks for ${result.windows} windows`);
+  }
+  if (result.roundStepsBudgeted !== 2 * result.sampleSize) {
+    issues.push('roundStepsBudgeted is not twice the sample size');
+  }
+
+  // Boundaries: explicit gap/overlap messages, then exact agreement with the partition.
+  let expectedStart = 0;
+  for (const [i, b] of result.blocks.entries()) {
+    if (b.index !== i) issues.push(`block ${i} has index ${b.index}`);
+    if (b.startIndex > expectedStart) issues.push(`gap before block ${i}`);
+    if (b.startIndex < expectedStart) issues.push(`block ${i} overlaps the previous block`);
+    if (b.endIndex - b.startIndex !== b.roundCount || b.endIndex <= b.startIndex) {
+      issues.push(`block ${i} boundaries do not match its round count`);
+    }
+    expectedStart = b.endIndex;
+  }
+  if (result.blocks.length > 0 && expectedStart !== result.sampleSize) {
+    issues.push(
+      `blocks end at index ${expectedStart}, not at the sample size ${result.sampleSize}`,
+    );
+  }
+  try {
+    const plan = partitionChronological(result.sampleSize, result.windows);
+    if (
+      plan.length !== result.blocks.length ||
+      plan.some(
+        (p, i) =>
+          p.startIndex !== result.blocks[i]!.startIndex ||
+          p.endIndex !== result.blocks[i]!.endIndex ||
+          p.roundCount !== result.blocks[i]!.roundCount,
+      )
+    ) {
+      issues.push('blocks differ from the chronological partition of the sample');
+    }
+  } catch (error) {
+    issues.push(`the declared sample cannot be partitioned: ${(error as Error).message}`);
+  }
+
+  // Event times: canonical, chronological, consistent between the blocks and the full sample.
+  const times = [
+    result.full.firstEventAt,
+    result.full.lastEventAt,
+    ...result.blocks.flatMap((b) => [b.firstEventAt, b.lastEventAt]),
+  ];
+  if (!times.every(isCanonicalInstant)) issues.push('an event time is not canonical UTC');
+  const first = result.blocks[0];
+  const last = result.blocks.at(-1);
+  if (first && first.firstEventAt !== result.full.firstEventAt) {
+    issues.push('the first block does not start at the sample start');
+  }
+  if (last && last.lastEventAt !== result.full.lastEventAt) {
+    issues.push('the last block does not end at the sample end');
+  }
+  for (const [i, b] of result.blocks.entries()) {
+    if (!(b.firstEventAt < b.lastEventAt)) issues.push(`block ${i} times are not increasing`);
+    const next = result.blocks[i + 1];
+    if (next && !(b.lastEventAt < next.firstEventAt)) {
+      issues.push(`block ${i + 1} does not start after block ${i} ends`);
+    }
+    if (b.firstRoundId < 1 || b.lastRoundId < 1) issues.push(`block ${i} has an invalid round id`);
+  }
+
+  // Source rounds, when available: ids and times at every boundary must match exactly.
+  if (expected.rounds) {
+    const rounds = expected.rounds;
+    if (rounds.length !== result.sampleSize) {
+      issues.push(`the source has ${rounds.length} rounds, not ${result.sampleSize}`);
+    } else {
+      for (const [i, b] of result.blocks.entries()) {
+        const firstRound = rounds[b.startIndex];
+        const lastRound = rounds[b.endIndex - 1];
+        if (
+          !firstRound ||
+          !lastRound ||
+          firstRound.roundId !== b.firstRoundId ||
+          lastRound.roundId !== b.lastRoundId ||
+          firstRound.eventAt !== b.firstEventAt ||
+          lastRound.eventAt !== b.lastEventAt
+        ) {
+          issues.push(`block ${i} round ids or times do not match the source rounds`);
+        }
+      }
+    }
+  }
+
+  checkSummary(issues, 'full sample', result.full.summary, result.sampleSize, expected);
+  for (const [i, b] of result.blocks.entries()) {
+    checkSummary(issues, `block ${i}`, b.summary, b.roundCount, expected);
+  }
+  if (expected.observedSummary && !sameJson(result.full.summary, expected.observedSummary)) {
+    issues.push("the full-sample replay differs from the run's stored result");
+  }
+
+  if (issues.length > 0) throw new RobustnessResultError(issues);
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// API contracts
+// ---------------------------------------------------------------------------
+
+/** POST /api/simulations/:id/robustness */
+export const robustnessRequestSchema = robustnessOptionsSchema;
+
+export const robustnessAnalysesQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(50).default(20),
+    offset: z.coerce.number().int().min(0).max(10_000_000).default(0),
+    /** Only analyses with this many blocks. */
+    windows: z.coerce
+      .number()
+      .int()
+      .min(MIN_ROBUSTNESS_WINDOWS)
+      .max(MAX_ROBUSTNESS_WINDOWS)
+      .optional(),
+  })
+  .strict();
+export type RobustnessAnalysesQuery = z.infer<typeof robustnessAnalysesQuerySchema>;
+
+export const robustnessAnalysisDtoSchema = z.object({
+  id: z.number().int(),
+  simulationRunId: z.number().int(),
+  status: z.literal('completed'),
+  createdAt: z.string(),
+  completedAt: z.string(),
+  algorithmVersion: z.string(),
+  resultSchemaVersion: z.number().int(),
+  windows: z.number().int(),
+  sampleSize: z.number().int(),
+  datasetSha256: z.string(),
+  result: blockRobustnessResultSchema,
+});
+export type RobustnessAnalysisDto = z.infer<typeof robustnessAnalysisDtoSchema>;
+
+export const robustnessAnalysesListSchema = z.object({
+  items: z.array(robustnessAnalysisDtoSchema),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+  /** Largest block count this run's sample allows (0: too few rounds for any). */
+  maxWindows: z.number().int(),
+  sampleSize: z.number().int().nullable(),
+});
+export type RobustnessAnalysesList = z.infer<typeof robustnessAnalysesListSchema>;

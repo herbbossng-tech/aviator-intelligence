@@ -436,7 +436,7 @@ describe('simulation_analyses integrity', () => {
         runs: legacy.prepare('SELECT * FROM simulation_runs ORDER BY id').all(),
         ledger: legacy.prepare('SELECT * FROM ledger_entries ORDER BY id').all(),
       };
-      expect(migrate(legacy)).toEqual({ applied: [4], currentVersion: 4 });
+      expect(migrate(legacy)).toEqual({ applied: [4, 5], currentVersion: 5 });
       expect(legacy.prepare('SELECT * FROM rounds ORDER BY id').all()).toEqual(before.rounds);
       expect(legacy.prepare('SELECT * FROM simulation_runs ORDER BY id').all()).toEqual(
         before.runs,

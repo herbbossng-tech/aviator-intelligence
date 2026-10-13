@@ -122,6 +122,20 @@ Aviator Intelligence is a local-first research and simulation dashboard for the 
   - charts
   - background jobs for larger analyses
 
+## Implemented in pass 6: strategy robustness (in progress)
+
+- **Increment 1 — engine** (`packages/shared/src/robustness.ts`):
+  - splits a run's eligible rounds into 2–10 contiguous, non-overlapping chronological blocks of near-equal size (at least 30 rounds each); boundaries depend only on the round count and order
+  - replays the full sample and each block independently through the existing replay loop, each block starting again from the configured bankroll
+  - validates options, limits, round order, canonical UTC event times, multipliers and configuration before any replay
+- **Increment 2 — persistence, API and UI:**
+  - strict result verification (`verifyBlockRobustnessResult`): versions, block count, partition boundaries, chronology, exact reconciliation, the source rounds at every boundary, and equality of the full-sample replay with the run's stored result
+  - migration 005 (additive): `simulation_robustness_analyses`, single verified rows tied to a completed run with the same fingerprint; no updates; deletable; cascades with the run; algorithm and result-format versions recorded
+  - API: `POST`, `GET` (paginated, filter by block count) and `GET`/`DELETE` one, under `/api/simulations/:id/robustness`; the server computes every result itself and re-checks the fingerprint inside the write transaction
+  - UI: `/simulations/:id/robustness`, linked from each completed run
+  - docs: [ROBUSTNESS.md](ROBUSTNESS.md)
+- **Not included yet:** configuration variants (parameter sensitivity), out-of-sample or walk-forward validation, rolling windows, charts.
+
 ## Planned for later phases
 
 Each phase needs separate approval.
