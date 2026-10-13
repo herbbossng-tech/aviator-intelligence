@@ -7,9 +7,15 @@ import {
   type BacktestRound,
   type BacktestSummary,
 } from './backtest.js';
-import type { TwoLegStrategyConfig } from './legs.js';
+import { LEG_KEYS, type LegKey, type TwoLegStrategyConfig } from './legs.js';
 import { roundMultiplierX100Schema } from './multiplier.js';
 import type { SimulationSettings } from './simulation.js';
+import {
+  legStakingIdentitySchema,
+  stakingIdentity,
+  type LegStakingIdentity,
+  type StakingPlan,
+} from './staking.js';
 
 /**
  * Chronological-block robustness (pass 6): does a configuration's historical result hold up
@@ -26,8 +32,9 @@ import type { SimulationSettings } from './simulation.js';
  *   using only the round count and that order: never the multipliers or any outcome.
  * - The full sample and each block are replayed through the same replay loop as the
  *   historical backtest (createSummaryReplayer). Each block starts again from the configured
- *   starting bankroll with fresh state (peak, drawdown, streaks, stops, maxRounds); nothing
- *   carries over between blocks. Block results therefore do NOT add up to the full-sample
+ *   starting bankroll with fresh state (peak, drawdown, streaks, stops, maxRounds and, for a
+ *   leg with a staking progression, the progression's first step with no cycle loss);
+ *   nothing carries over between blocks. Block results therefore do NOT add up to the full-sample
  *   result, which depends on the bankroll carried from one round to the next.
  */
 export const ROBUSTNESS_ALGORITHM_VERSION = 'chronological-blocks/v1';
@@ -187,6 +194,16 @@ export interface BlockRobustnessResult {
   };
   /** Independent replays, in chronological order. Not to be summed into a full result. */
   blocks: BlockReplayResult[];
+  /**
+   * Only for a run with a staking plan: which progressions were replayed, and that the full
+   * sample and every block started them afresh. Absent for flat-stake runs.
+   */
+  staking?:
+    | {
+        statePolicy: 'reset_each_block';
+        legs: Record<LegKey, LegStakingIdentity | null>;
+      }
+    | undefined;
 }
 
 /**
@@ -202,6 +219,7 @@ export function runBlockRobustness(
   strategy: TwoLegStrategyConfig,
   settings: SimulationSettings,
   options: RobustnessOptions,
+  staking: StakingPlan | null = null,
 ): BlockRobustnessResult {
   const { windows } = robustnessOptionsSchema.parse(options);
   const n = sample.length;
@@ -218,7 +236,7 @@ export function runBlockRobustness(
   for (let i = 0; i < n; i++) {
     multipliers[i] = roundMultiplierX100Schema.parse(sample[i]!.multiplierX100);
   }
-  const replay = createSummaryReplayer(strategy, settings);
+  const replay = createSummaryReplayer(strategy, settings, staking);
 
   const full = replay(multipliers);
   const blocks = plan.map((block): BlockReplayResult => {
@@ -247,6 +265,9 @@ export function runBlockRobustness(
     roundStepsBudgeted,
     full: { firstEventAt: sample[0]!.eventAt, lastEventAt: sample[n - 1]!.eventAt, summary: full },
     blocks,
+    ...(staking === null
+      ? {}
+      : { staking: { statePolicy: 'reset_each_block' as const, legs: stakingIdentity(staking) } }),
   };
 }
 
@@ -277,6 +298,19 @@ export const blockRobustnessResultSchema = z.object({
       summary: backtestSummarySchema,
     }),
   ),
+  /**
+   * Present only when the run used a staking plan: which progressions were replayed, and
+   * that each replay (the full sample and every block) started them afresh.
+   */
+  staking: z
+    .object({
+      statePolicy: z.literal('reset_each_block'),
+      legs: z
+        .object({ A: legStakingIdentitySchema.nullable(), B: legStakingIdentitySchema.nullable() })
+        .strict(),
+    })
+    .strict()
+    .optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -311,6 +345,8 @@ export interface RobustnessExpectations {
   observedSummary?: BacktestSummary;
   /** The source rounds in replay order, when available (block ids and times must match). */
   rounds?: readonly Pick<BacktestRound, 'roundId' | 'eventAt'>[];
+  /** The run's staking plan; omitted or null for a flat-stake run. */
+  staking?: StakingPlan | null;
 }
 
 function isCanonicalInstant(text: unknown): boolean {
@@ -339,7 +375,11 @@ function checkSummary(
   where: string,
   s: BacktestSummary,
   roundCount: number,
-  { strategy, settings }: Pick<RobustnessExpectations, 'strategy' | 'settings'>,
+  {
+    strategy,
+    settings,
+    staking,
+  }: Pick<RobustnessExpectations, 'strategy' | 'settings' | 'staking'>,
 ): void {
   const fail = (message: string) => issues.push(`${where}: ${message}`);
   if (s.currency !== settings.currency) fail('currency differs from the settings');
@@ -400,6 +440,31 @@ function checkSummary(
   }
   if (staked !== s.totalStakedMinor || returned !== s.totalReturnedMinor) {
     fail('leg totals do not add up to the summary totals');
+  }
+  // Progressions: present exactly for the plan's legs, with the plan's identity, and every
+  // skip and completed cycle reconciled with the leg's own totals.
+  const plan = staking ?? null;
+  if ((s.progression === undefined) !== (plan === null)) {
+    fail('the progression summary does not match the staking plan');
+    return;
+  }
+  if (s.progression === undefined || plan === null) return;
+  const identity = stakingIdentity(plan);
+  for (const key of LEG_KEYS) {
+    const p = s.progression.legs[key];
+    const id = identity[key];
+    if (p === null || id === null) {
+      if (p !== null || id !== null) fail(`leg ${key}'s progression does not match the plan`);
+      continue;
+    }
+    if (p.mode !== id.mode || p.configKey !== id.configKey) {
+      fail(`leg ${key}'s progression does not match the plan`);
+    }
+    const leg = s.legs.find((l) => l.leg === key)!;
+    if (p.skippedInsufficientBankroll + p.skippedInactive !== leg.skipped) {
+      fail(`leg ${key}: progression skips do not add up to the leg's skips`);
+    }
+    if (p.cyclesCompleted !== leg.wins) fail(`leg ${key}: completed cycles != wins`);
   }
 }
 
@@ -523,6 +588,14 @@ export function verifyBlockRobustnessResult(
   checkSummary(issues, 'full sample', result.full.summary, result.sampleSize, expected);
   for (const [i, b] of result.blocks.entries()) {
     checkSummary(issues, `block ${i}`, b.summary, b.roundCount, expected);
+  }
+  const plan = expected.staking ?? null;
+  if ((result.staking === undefined) !== (plan === null)) {
+    issues.push('the staking metadata does not match the staking plan');
+  } else if (result.staking !== undefined && plan !== null) {
+    if (!sameJson(result.staking.legs, stakingIdentity(plan))) {
+      issues.push("the staking metadata does not identify the plan's progressions");
+    }
   }
   if (expected.observedSummary && !sameJson(result.full.summary, expected.observedSummary)) {
     issues.push("the full-sample replay differs from the run's stored result");

@@ -336,14 +336,15 @@ function replayCore(
   strategy: TwoLegStrategyConfig,
   settings: SimulationSettings,
   recordRounds: boolean,
-  staking: StakingPlan | null = null,
+  steppers: CompiledStaking | null = null,
 ): { rounds: ReplayedRound[]; summary: BacktestSummary } {
   const legs = legOrder(strategy);
   const runtimes: LegRuntime[] = legs
     .filter((l) => l.enabled)
     .map((l) => {
-      const config = staking?.legs[l.key] ?? null;
-      const stepper = config === null ? null : createProgressionStepper(config);
+      // Fresh progression state for every replay: steppers are pure, and each replay starts
+      // from the stepper's initial state, so nothing carries between paths or blocks.
+      const stepper = steppers?.[l.key] ?? null;
       return {
         key: l.key,
         label: l.label,
@@ -620,7 +621,7 @@ function replayCore(
     longestLosingStreak,
     legs: legSummaries,
   };
-  if (staking !== null) {
+  if (steppers !== null) {
     const legProgression = (key: LegKey): LegProgressionSummary | null => {
       const leg = runtimes.find((r) => r.key === key);
       if (!leg || leg.stepper === null || leg.state === null) return null;
@@ -680,6 +681,17 @@ function parseStaking(
   return staking;
 }
 
+/** Each leg's compiled progression (null = flat stakes). Pure and reusable across replays. */
+type CompiledStaking = Record<LegKey, ProgressionStepper | null>;
+
+function compileStaking(staking: StakingPlan | null): CompiledStaking | null {
+  if (staking === null) return null;
+  return {
+    A: staking.legs.A === null ? null : createProgressionStepper(staking.legs.A),
+    B: staking.legs.B === null ? null : createProgressionStepper(staking.legs.B),
+  };
+}
+
 export function runBacktest(
   rounds: readonly BacktestRound[],
   strategyInput: TwoLegStrategyConfig,
@@ -695,7 +707,7 @@ export function runBacktest(
     strategy,
     settings,
     true,
-    staking,
+    compileStaking(staking),
   );
   return {
     rounds: replayed.map((r) => ({
@@ -715,14 +727,24 @@ export function runBacktest(
 export function createSummaryReplayer(
   strategyInput: TwoLegStrategyConfig,
   settingsInput: SimulationSettings,
+  stakingInput: StakingPlan | null = null,
 ): (multipliers: ArrayLike<number>) => BacktestSummary {
   const { strategy, settings } = parseConfig(strategyInput, settingsInput);
+  // The plan is validated against the strategy once; every replay then starts each
+  // progression afresh (step 0, no cycle loss) from the same compiled configuration.
+  const steppers = compileStaking(parseStaking(stakingInput, strategy));
   return (multipliers) => {
     if (multipliers.length > MAX_BACKTEST_ROUNDS) {
       throw new RangeError(`A replay covers at most ${MAX_BACKTEST_ROUNDS} rounds`);
     }
-    return replayCore(multipliers.length, (index) => multipliers[index]!, strategy, settings, false)
-      .summary;
+    return replayCore(
+      multipliers.length,
+      (index) => multipliers[index]!,
+      strategy,
+      settings,
+      false,
+      steppers,
+    ).summary;
   };
 }
 
