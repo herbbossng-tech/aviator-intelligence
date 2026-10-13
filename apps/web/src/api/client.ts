@@ -3,6 +3,8 @@ import {
   analyticsResponseSchema,
   apiErrorSchema,
   backtestDatasetReportSchema,
+  blockAnalysesListSchema,
+  blockAnalysisDtoSchema,
   healthResponseSchema,
   importConfirmResponseSchema,
   importDtoSchema,
@@ -23,6 +25,7 @@ import {
   validationDetailSchema,
   type AnalysisSettings,
   type BacktestRequestInput,
+  type BlockAnalysisRequest,
   type ImportFormat,
   type RobustnessOptions,
   type ValidationDetail,
@@ -181,6 +184,17 @@ export const api = {
     getJson(`/api/simulations/${runId}/analyses?limit=50`, simulationAnalysesListSchema, signal),
   runAnalysis: (runId: number, settings: AnalysisSettings) =>
     postJson(`/api/simulations/${runId}/analyses`, simulationAnalysisDtoSchema, settings),
+  /** Moving-block bootstrap analyses of a run, newest first, with this sample's limits. */
+  blockAnalyses: (runId: number, signal?: AbortSignal) =>
+    getJson(`/api/simulations/${runId}/block-analyses?limit=50`, blockAnalysesListSchema, signal),
+  blockAnalysis: (runId: number, analysisId: number, signal?: AbortSignal) =>
+    getJson(
+      `/api/simulations/${runId}/block-analyses/${analysisId}`,
+      blockAnalysisDtoSchema,
+      signal,
+    ),
+  runBlockAnalysis: (runId: number, request: BlockAnalysisRequest) =>
+    postJson(`/api/simulations/${runId}/block-analyses`, blockAnalysisDtoSchema, request),
   robustnessAnalyses: (runId: number, signal?: AbortSignal) =>
     getJson(`/api/simulations/${runId}/robustness?limit=50`, robustnessAnalysesListSchema, signal),
   runRobustness: (runId: number, options: RobustnessOptions) =>

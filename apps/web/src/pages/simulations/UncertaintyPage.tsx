@@ -1,11 +1,8 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
-import { Link, useParams } from 'react-router';
+import { useState, type FormEvent } from 'react';
+import { Link, useParams, useSearchParams } from 'react-router';
 import {
-  ANALYSIS_QUANTILE_LEVELS_BPS,
   DEFAULT_ANALYSIS_PATHS,
   MAX_ANALYSIS_SEED,
-  STOP_REASON_TEXT,
-  STOP_REASONS,
   type SimulationAnalysesList,
   type SimulationAnalysisDto,
   type SimulationRunDto,
@@ -20,39 +17,91 @@ import { PageHeader } from '../../components/PageHeader';
 import { Panel } from '../../components/Panel';
 import { formatCount, formatMinorAmount, formatTimestamp } from '../../lib/format';
 import { formatPercent } from '../../lib/stats';
+import { BLOCK_UNCERTAINTY_CAUTION, BlockAnalyses } from './BlockBootstrapAnalyses';
+import { BOOTSTRAP_PROGRESSION_NOTE, describeProgression } from './display';
 import {
-  BOOTSTRAP_PROGRESSION_NOTE,
-  describeProgression,
-  formatSignedMinor,
-  PROGRESSION_MODE_TEXT,
-} from './display';
+  Badge,
+  DistributionTable,
+  PathOutcomes,
+  randomSeed,
+  Rows,
+  SamplePanel,
+} from './resamplingDisplay';
 
 export const UNCERTAINTY_CAUTION =
   'Resampled results are conditional on the IID bootstrap model and on this one historical sample. They are not a prediction of future rounds, not a real-world probability of loss, and not evidence that a configuration is profitable.';
 
-function randomSeed(): number {
-  const words = new Uint32Array(2);
-  crypto.getRandomValues(words);
-  // 53 random bits: 21 from the first word, 32 from the second.
-  return (words[0]! & 0x1f_ffff) * 0x1_0000_0000 + words[1]!;
-}
+/** The resampling method, kept in the URL (`?method=moving-block`); IID unless stated. */
+export type ResamplingMethod = 'iid' | 'moving-block';
 
-const quantileLabel = (levelBps: number) => `p${String(levelBps / 100).padStart(2, '0')}`;
+const METHOD_OPTIONS: { value: ResamplingMethod; label: string; description: string }[] = [
+  {
+    value: 'iid',
+    label: 'Independent rounds (IID bootstrap)',
+    description:
+      'Draws single rounds independently from the sample, ignoring their recorded order.',
+  },
+  {
+    value: 'moving-block',
+    label: 'Blocks of consecutive rounds (moving-block bootstrap)',
+    description:
+      'Draws stretches of consecutive recorded rounds, keeping their order within each stretch.',
+  },
+];
 
-function Badge({ kind }: { kind: 'observed' | 'resampled' }) {
-  return kind === 'observed' ? (
-    <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-xs font-medium text-sky-300 ring-1 ring-sky-500/30">
-      Observed
-    </span>
-  ) : (
-    <span className="rounded bg-violet-500/15 px-1.5 py-0.5 text-xs font-medium text-violet-300 ring-1 ring-violet-500/30">
-      Resampled
-    </span>
+function MethodSelector({
+  method,
+  onChange,
+}: {
+  method: ResamplingMethod;
+  onChange: (m: ResamplingMethod) => void;
+}) {
+  return (
+    <fieldset className="mb-6 rounded-lg border border-slate-800 bg-slate-900/40 px-5 py-4">
+      <legend className="px-1 text-sm font-medium text-slate-200">Resampling method</legend>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {METHOD_OPTIONS.map((o) => (
+          <label
+            key={o.value}
+            className="flex cursor-pointer gap-3 rounded-md p-3 ring-1 ring-slate-800 has-[:checked]:bg-slate-800/60 has-[:checked]:ring-sky-600 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-sky-500"
+          >
+            <input
+              type="radio"
+              name="resampling-method"
+              value={o.value}
+              checked={method === o.value}
+              onChange={() => onChange(o.value)}
+              aria-describedby={`method-${o.value}-description`}
+              className="mt-0.5 accent-sky-500"
+            />
+            <span>
+              <span className="block text-sm text-slate-200">{o.label}</span>
+              <span
+                id={`method-${o.value}-description`}
+                className="mt-0.5 block text-xs text-slate-500"
+              >
+                {o.description}
+              </span>
+            </span>
+          </label>
+        ))}
+      </div>
+      <p className="mt-3 text-xs text-slate-500">
+        Each method keeps its own settings and its own saved analyses. Neither predicts future
+        rounds.
+      </p>
+    </fieldset>
   );
 }
 
 export function UncertaintyPage() {
   const { id } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const method: ResamplingMethod =
+    searchParams.get('method') === 'moving-block' ? 'moving-block' : 'iid';
+  const chooseMethod = (next: ResamplingMethod) =>
+    // A method change also drops any analysis selected under the other method.
+    setSearchParams(next === 'iid' ? {} : { method: next }, { replace: true });
   const runId = /^[1-9]\d{0,15}$/.test(id ?? '') ? Number(id) : null;
   const run = useApi(
     (signal) =>
@@ -77,15 +126,18 @@ export function UncertaintyPage() {
         role="note"
         className="mb-6 rounded-md border border-amber-400/30 bg-amber-400/5 px-4 py-3 text-sm text-amber-200"
       >
-        {UNCERTAINTY_CAUTION}
+        {method === 'iid' ? UNCERTAINTY_CAUTION : BLOCK_UNCERTAINTY_CAUTION}
       </div>
+      <MethodSelector method={method} onChange={chooseMethod} />
       {run.status === 'loading' ? <p className="text-sm text-slate-400">Loading run…</p> : null}
       {run.status === 'error' ? <ErrorNotice message={run.message} /> : null}
       {run.status === 'success' ? (
         run.data.status !== 'completed' || run.data.summary === null ? (
           <ErrorNotice message="This run failed and has no results, so it cannot be analysed." />
-        ) : (
+        ) : method === 'iid' ? (
           <Analyses run={run.data} />
+        ) : (
+          <BlockAnalyses run={run.data} />
         )
       ) : null}
     </>
@@ -188,53 +240,10 @@ function Analyses({ run }: { run: SimulationRunDto }) {
   );
 }
 
-function Rows({ rows }: { rows: [string, ReactNode][] }) {
-  return (
-    <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-[minmax(0,14rem)_minmax(0,1fr)]">
-      {rows.map(([label, value]) => (
-        <div key={label} className="contents">
-          <dt className="text-slate-500">{label}</dt>
-          <dd className="break-words text-slate-200">{value}</dd>
-        </div>
-      ))}
-    </dl>
-  );
-}
-
 function SampleAndMethod({ run }: { run: SimulationRunDto }) {
-  const report = run.dataset!;
-  const summary = run.summary!;
-  const money = (v: number) => formatMinorAmount(v, run.settings.currency);
   return (
     <div className="grid gap-6 lg:grid-cols-2">
-      <Panel
-        title="Sample"
-        subtitle="Every eligible round selected by this run's dataset, including any its historical replay did not reach"
-      >
-        <Rows
-          rows={[
-            ['Source', report.dataset.source],
-            ['Observed rounds (n)', formatCount(report.roundsEligible)],
-            ['Excluded: no event time', formatCount(report.excludedNoEventTime)],
-            ['Excluded: synthetic test fixtures', formatCount(report.excludedSynthetic)],
-            [
-              'Dataset fingerprint (SHA-256)',
-              <span key="fp" className="font-mono text-xs break-all">
-                {run.datasetSha256}
-              </span>,
-            ],
-            [
-              'Observed historical result',
-              <span key="obs" className="flex flex-wrap items-center gap-2">
-                <Badge kind="observed" />
-                ending {money(summary.endingBankrollMinor)} · max drawdown{' '}
-                {formatPercent(summary.maxDrawdownFraction)} ·{' '}
-                {STOP_REASON_TEXT[summary.stopReason]}
-              </span>,
-            ],
-          ]}
-        />
-      </Panel>
+      <SamplePanel run={run} />
       <Panel title="Method" subtitle="IID empirical bootstrap">
         <ul className="list-disc space-y-1 pl-5 text-sm text-slate-400">
           <li>
@@ -381,81 +390,15 @@ function RunForm({
   );
 }
 
-function share(count: number, denominator: number) {
-  return `${formatCount(count)} of ${formatCount(denominator)} (${formatPercent(count / denominator)})`;
-}
-
-function DistributionTable({
-  caption,
-  rows,
-}: {
-  caption: string;
-  rows: {
-    label: string;
-    observed: string | null;
-    dist: { min: number; max: number; quantiles: { levelBps: number; value: number }[] };
-    format: (v: number) => string;
-  }[];
-}) {
-  return (
-    <div className="relative overflow-x-auto">
-      <table className="w-full min-w-[44rem] text-left text-sm">
-        <caption className="sr-only">{caption}</caption>
-        <thead className="text-xs text-slate-500 uppercase">
-          <tr>
-            <th scope="col" className="py-2 pr-3 font-medium">
-              Metric
-            </th>
-            <th scope="col" className="py-2 pr-3 text-right font-medium">
-              Observed
-            </th>
-            <th scope="col" className="py-2 pr-3 text-right font-medium">
-              Min
-            </th>
-            {ANALYSIS_QUANTILE_LEVELS_BPS.map((l) => (
-              <th key={l} scope="col" className="py-2 pr-3 text-right font-medium">
-                {quantileLabel(l)}
-              </th>
-            ))}
-            <th scope="col" className="py-2 pr-3 text-right font-medium">
-              Max
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-slate-800 font-mono whitespace-nowrap tabular-nums">
-          {rows.map((r) => (
-            <tr key={r.label}>
-              <th
-                scope="row"
-                className="min-w-[8rem] py-2 pr-3 font-sans font-normal whitespace-normal text-slate-300"
-              >
-                {r.label}
-              </th>
-              <td className="py-2 pr-3 text-right text-sky-300">{r.observed ?? '—'}</td>
-              <td className="py-2 pr-3 text-right">{r.format(r.dist.min)}</td>
-              {r.dist.quantiles.map((q) => (
-                <td key={q.levelBps} className="py-2 pr-3 text-right text-violet-200">
-                  {r.format(q.value)}
-                </td>
-              ))}
-              <td className="py-2 pr-3 text-right">{r.format(r.dist.max)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function Results({ run, analysis }: { run: SimulationRunDto; analysis: SimulationAnalysisDto }) {
   const s = analysis.summary;
   const currency = run.settings.currency;
   const money = (v: number) => formatMinorAmount(v, currency);
-  const { configuredBoundaries: b, observed: o, netOutcome: n } = s;
+  const o = s.observed;
   return (
     <Panel
       title={`Resampled results · analysis #${analysis.id}`}
-      subtitle={`${formatCount(s.paths)} paths × ${formatCount(s.pathLength)} draws · seed ${s.seed} · ${s.algorithmVersion}`}
+      subtitle={`IID bootstrap · ${formatCount(s.paths)} paths × ${formatCount(s.pathLength)} draws · seed ${s.seed} · ${s.algorithmVersion}`}
       actions={<Badge kind="resampled" />}
     >
       <div className="space-y-6">
@@ -507,130 +450,7 @@ function Results({ run, analysis }: { run: SimulationRunDto; analysis: Simulatio
           />
         </section>
 
-        <div className="grid gap-6 lg:grid-cols-2">
-          <section aria-label="Net outcome of resampled paths">
-            <h3 className="mb-2 text-sm font-medium text-slate-200">Net outcome of paths</h3>
-            <p className="mb-2 text-xs text-slate-500">
-              Shares of the {formatCount(n.denominator)} resampled paths under this model, not
-              chances of making money in future rounds.
-            </p>
-            <Rows
-              rows={[
-                ['Ended above the start (net > 0)', share(n.positive, n.denominator)],
-                ['Ended at the start (net = 0)', share(n.zero, n.denominator)],
-                ['Ended below the start (net < 0)', share(n.negative, n.denominator)],
-                [
-                  'Observed run',
-                  <span key="o" className="flex flex-wrap items-center gap-2">
-                    <Badge kind="observed" />
-                    {formatSignedMinor(o.netProfitMinor, currency)}
-                  </span>,
-                ],
-                ['Paths ending below the observed', share(o.pathsEndingBelow, o.denominator)],
-                ['Paths ending equal to the observed', share(o.pathsEndingEqual, o.denominator)],
-                ['Paths ending above the observed', share(o.pathsEndingAbove, o.denominator)],
-              ]}
-            />
-          </section>
-
-          <section aria-label="Configured virtual-bankroll boundaries">
-            <h3 className="mb-2 text-sm font-medium text-slate-200">Configured boundaries</h3>
-            <Rows
-              rows={[
-                [
-                  'Lower bankroll stop',
-                  b.lowerBankrollStop === null
-                    ? 'Not configured for this run'
-                    : `${share(b.lowerBankrollStop.count, b.lowerBankrollStop.denominator)} of paths ended by falling below ${money(b.lowerBankrollStop.thresholdMinor)}`,
-                ],
-                [
-                  'Drawdown stop',
-                  b.maxDrawdownStop === null
-                    ? 'Not configured for this run'
-                    : `${share(b.maxDrawdownStop.count, b.maxDrawdownStop.denominator)} of paths ended by a drawdown of at least ${(b.maxDrawdownStop.thresholdBps / 100).toFixed(2)}%`,
-                ],
-              ]}
-            />
-            <p className="mt-2 text-xs text-slate-500">
-              The fraction of resampled paths that ended because they reached the configured
-              virtual-bankroll boundary under this bootstrap model. It is not a probability of
-              real-world loss. Each path is counted under one stop only (see below), so a low count
-              does not mean paths never crossed that threshold.
-            </p>
-          </section>
-        </div>
-
-        <section aria-label="How paths ended">
-          <h3 className="mb-2 text-sm font-medium text-slate-200">How paths ended</h3>
-          <p id="stop-precedence" className="mb-2 text-xs text-slate-500">
-            Each path is counted once, under the first stop the engine checks after a round: lower
-            bankroll stop, then upper stop, then drawdown stop. A path that breaches several
-            thresholds in the same round counts only under the first, so a zero for a later stop
-            does not mean no path crossed it.
-          </p>
-          <div className="relative overflow-x-auto">
-            <table
-              className="w-full min-w-[30rem] text-left text-sm"
-              aria-describedby="stop-precedence"
-            >
-              <caption className="sr-only">Paths by stop reason</caption>
-              <thead className="text-xs text-slate-500 uppercase">
-                <tr>
-                  <th scope="col" className="py-2 pr-4 font-medium">
-                    Stop reason
-                  </th>
-                  <th scope="col" className="py-2 pr-4 text-right font-medium">
-                    Paths
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {STOP_REASONS.map((reason) => (
-                  <tr key={reason}>
-                    <th scope="row" className="py-2 pr-4 font-normal text-slate-300">
-                      {STOP_REASON_TEXT[reason]}
-                    </th>
-                    <td className="py-2 pr-4 text-right font-mono whitespace-nowrap">
-                      {share(s.stopReasons[reason], s.paths)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-
-        {s.staking ? (
-          <section aria-label="Staking progressions on resampled paths">
-            <h3 className="mb-2 text-sm font-medium text-slate-200">
-              Staking progressions{' '}
-              <span className="font-normal text-slate-500">
-                (restarted at the first step on every path)
-              </span>
-            </h3>
-            <Rows
-              rows={(['A', 'B'] as const).flatMap((k): [string, ReactNode][] => {
-                const leg = s.staking!.legs[k];
-                if (leg === null) return [[`Leg ${k}`, 'Flat stakes']];
-                return [
-                  [`Leg ${k}`, `${PROGRESSION_MODE_TEXT[leg.mode]} · ${leg.configKey}`],
-                  [
-                    `Leg ${k}: paths where a limit stopped it`,
-                    share(leg.pathsStoppedByLimit, leg.denominator),
-                  ],
-                  [
-                    `Leg ${k}: paths with a stake the bankroll could not fund`,
-                    share(leg.pathsWithBankrollSkips, leg.denominator),
-                  ],
-                ];
-              })}
-            />
-            <p className="mt-2 text-xs text-slate-500">
-              Shares of resampled paths under this model, not chances for future rounds. A stopped
-              leg stakes nothing for the rest of its path; a skipped stake is not a loss.
-            </p>
-          </section>
-        ) : null}
+        <PathOutcomes run={run} s={s} />
 
         <p className="text-xs text-slate-500">
           Sample: {formatCount(s.sample.size)} observed rounds,{' '}

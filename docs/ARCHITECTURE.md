@@ -33,7 +33,7 @@
 ├── apps/web/                   @aviator/web: React + Vite dashboard
 │   ├── src/api/                typed fetch client (validates responses with shared schemas), useApi hook
 │   ├── src/components/         shell, panels, stat cards, empty/error states
-│   ├── src/pages/              one file per route; pages/rounds/ holds the round data manager, pages/simulations/ the backtest form logic and run detail
+│   ├── src/pages/              one file per route; pages/rounds/ holds the round data manager, pages/simulations/ the backtest form logic, run detail and the uncertainty page (IID and moving-block methods)
 │   └── test/                   React Testing Library tests (fetch is stubbed)
 └── docs/
 ```
