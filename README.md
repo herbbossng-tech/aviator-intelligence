@@ -8,6 +8,7 @@ A local-first web dashboard for **researching** the crash-style game Aviator. It
 > - Past multipliers are not treated as predictors of future multipliers.
 > - Live betting, real-money execution, account login and browser automation of betting sites are **not implemented**.
 > - All bankroll figures are virtual.
+> - Historical results do not predict future rounds. Martingale and other staking progressions do not create a predictive edge, and no strategy guarantees recovery or profitability.
 
 ## Current status
 
@@ -27,7 +28,7 @@ Foundation pass 1, **pass 2 (historical round data manager)**, **pass 3 (histori
 | Historical analytics: summary, nearest-rank quantiles, P(M ≥ t) with 95% Wilson intervals, histogram, data-quality report | Done (pass 3)                                                                                    |
 | Uncertainty analysis of backtests: seeded IID bootstrap, quantiles, configured-boundary frequency                         | Done (pass 5)                                                                                    |
 | Chronological robustness analysis of backtests: independent replays of consecutive periods, stored and verified           | Done (pass 6)                                                                                    |
-| Staking progressions (fixed, Martingale, capped, custom): pure engine with hard limits; not yet used by backtests         | In progress ([docs/PROGRESSION.md](docs/PROGRESSION.md))                                         |
+| Staking progressions (fixed, Martingale, capped, custom): engine with hard limits, per-leg use in virtual backtests       | In progress ([docs/PROGRESSION.md](docs/PROGRESSION.md))                                         |
 | Playwright browser tests of the dashboard                                                                                 | Planned                                                                                          |
 | Live observation                                                                                                          | Out of scope until reviewed ([docs/LIVE_OBSERVATION_REVIEW.md](docs/LIVE_OBSERVATION_REVIEW.md)) |
 | Real-money execution / betting automation                                                                                 | Excluded                                                                                         |
@@ -177,6 +178,7 @@ docs/             Scope, architecture, data import contract, live-observation re
 
 - Crash-game rounds are designed to be independent. Descriptive statistics of past rounds are not evidence of a predictive edge, and a profitable backtest is not evidence of future profit.
 - The leg settlement rule (cashout succeeds when crash multiplier ≥ target) is a modelling assumption still to be confirmed against the platform's published rules.
+- Staking progressions such as Martingale only change virtual stake sizes. They do not create a predictive edge, and no strategy guarantees recovery of losses or profitability. Uncertainty and robustness analyses do not yet support progression runs.
 - Backtests replay one historical sequence. They report no risk-of-ruin estimate or confidence intervals, and they cannot model timing, latency or platform limits. See [docs/SIMULATION.md](docs/SIMULATION.md).
 - The API has no authentication and is meant for a single local user on loopback only. While bound to loopback, it rejects requests whose `Host` header is not `localhost`, `127.0.0.1` or `[::1]`, which mitigates DNS-rebinding attacks from web pages. This is not complete protection or authentication: any local process can still call it, so do not expose it to a network. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 - `npm run dev` may show "Local API unreachable" for a few seconds, because the dashboard can start before the API. Reload once the API has started.

@@ -70,10 +70,11 @@ export function runAndStoreBacktest(
       report = getDatasetReport(db, request.dataset, maxRounds);
       if (!report.orderable) throw new NotOrderableError(report);
       const rounds = loadReplayRounds(db, request.dataset);
-      const result = runBacktest(rounds, request.strategy, request.settings);
+      const result = runBacktest(rounds, request.strategy, request.settings, request.staking);
       return insertCompletedRun(db, {
         strategy: request.strategy,
         settings: request.settings,
+        staking: request.staking,
         datasetRequest: request.dataset,
         report,
         datasetSha256: hashReplayRounds(request.dataset.source, rounds),
@@ -97,6 +98,7 @@ export function runAndStoreBacktest(
       insertFailedRun(db, {
         strategy: request.strategy,
         settings: request.settings,
+        staking: request.staking,
         datasetRequest: request.dataset,
         report,
         errorMessage: FAILED_RUN_MESSAGE,

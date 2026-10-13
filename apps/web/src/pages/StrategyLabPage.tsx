@@ -9,14 +9,22 @@ import { Notice } from '../components/Notice';
 import { PageHeader } from '../components/PageHeader';
 import { Panel } from '../components/Panel';
 import { formatCount } from '../lib/format';
-import { AssumptionsList, BACKTEST_CAUTION, DatasetReportView } from './simulations/display';
+import {
+  AssumptionsList,
+  BACKTEST_CAUTION,
+  DatasetReportView,
+  PROGRESSION_CAUTION,
+} from './simulations/display';
 import {
   buildRequest,
   datasetInput,
   initialDraft,
   mapServerErrors,
+  STAKING_MODE_LABELS,
   type FieldErrors,
   type LegDraft,
+  type StakingDraft,
+  type StakingMode,
   type StrategyDraft,
 } from './simulations/strategyForm';
 
@@ -25,6 +33,119 @@ type DatasetCheck =
   | { status: 'checking' }
   | { status: 'done'; report: BacktestDatasetReport }
   | { status: 'error'; message: string };
+
+const MODE_HINTS: Record<StakingMode, string> = {
+  flat: 'The leg stakes the amount above every round.',
+  fixed: "The leg's stake every round, with a limit on consecutive losses.",
+  martingale: 'After each loss the stake is multiplied; a win resets it to the leg stake.',
+  capped_martingale:
+    'As Martingale, but no single stake may exceed the maximum stake; reaching it stops the leg.',
+  custom: 'Your own stake for each step after consecutive losses; a win returns to the first.',
+};
+
+function StakingFields({
+  legKey,
+  currency,
+  draft,
+  errors,
+  onChange,
+}: {
+  legKey: LegKey;
+  currency: string;
+  draft: StakingDraft;
+  errors: FieldErrors;
+  onChange: (patch: Partial<StakingDraft>) => void;
+}) {
+  const id = (name: string) => `leg${legKey}-${name}` as keyof FieldErrors;
+  const mode = draft.mode;
+  const needsMultiplier = mode === 'martingale' || mode === 'capped_martingale';
+  const field = (
+    name: 'multiplier' | 'maxSteps' | 'maxStake' | 'maxExposure',
+    label: string,
+    hint: string,
+    required: boolean,
+  ) => (
+    <FormField id={id(name)} label={label} hint={hint} required={required} error={errors[id(name)]}>
+      {(p) => (
+        <input
+          {...p}
+          className={inputClass}
+          inputMode={name === 'maxSteps' ? 'numeric' : 'decimal'}
+          value={draft[name]}
+          onChange={(e) => onChange({ [name]: e.target.value })}
+        />
+      )}
+    </FormField>
+  );
+  return (
+    <fieldset className="space-y-4 border-t border-slate-800 pt-4">
+      <legend className="sr-only">Leg {legKey} staking</legend>
+      <FormField
+        id={id('mode')}
+        label="Staking"
+        hint={MODE_HINTS[mode]}
+        required
+        error={errors[id('mode')]}
+      >
+        {(p) => (
+          <select
+            {...p}
+            className={inputClass}
+            value={mode}
+            onChange={(e) => onChange({ mode: e.target.value as StakingMode })}
+          >
+            {(Object.keys(STAKING_MODE_LABELS) as StakingMode[]).map((m) => (
+              <option key={m} value={m}>
+                {STAKING_MODE_LABELS[m]}
+              </option>
+            ))}
+          </select>
+        )}
+      </FormField>
+      {mode === 'flat' ? null : (
+        <div className="grid gap-4 sm:grid-cols-2">
+          {needsMultiplier
+            ? field('multiplier', 'Multiplier after a loss', 'e.g. 2.00 doubles; 1.01–10', true)
+            : null}
+          {mode === 'custom' ? (
+            <div className="sm:col-span-2">
+              <FormField
+                id={id('sequence')}
+                label={`Stake sequence (${currency})`}
+                hint="Comma-separated, no thousands separators, starting with the leg's stake, e.g. 500, 1000, 2000"
+                required
+                error={errors[id('sequence')]}
+              >
+                {(p) => (
+                  <input
+                    {...p}
+                    className={inputClass}
+                    value={draft.sequence}
+                    onChange={(e) => onChange({ sequence: e.target.value })}
+                  />
+                )}
+              </FormField>
+            </div>
+          ) : (
+            field('maxSteps', 'Maximum steps', 'Stakes allowed in one losing streak', true)
+          )}
+          {field(
+            'maxStake',
+            `Maximum stake (${currency})`,
+            'No single stake may exceed this',
+            mode === 'capped_martingale',
+          )}
+          {field(
+            'maxExposure',
+            `Maximum cycle exposure (${currency})`,
+            'Losses so far in the streak plus the next stake',
+            mode === 'martingale',
+          )}
+        </div>
+      )}
+    </fieldset>
+  );
+}
 
 const buttonClass =
   'rounded-md px-4 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-50';
@@ -48,6 +169,11 @@ export function StrategyLabPage() {
   };
   const updateLeg = (key: LegKey, patch: Partial<LegDraft>) =>
     setDraft((d) => ({ ...d, legs: { ...d.legs, [key]: { ...d.legs[key], ...patch } } }));
+  const updateStaking = (key: LegKey, patch: Partial<StakingDraft>) =>
+    setDraft((d) => ({
+      ...d,
+      staking: { ...d.staking, [key]: { ...d.staking[key], ...patch } },
+    }));
   const text = (k: keyof StrategyDraft) => ({
     value: draft[k] as string,
     onChange: (e: { target: { value: string } }) => update({ [k]: e.target.value }),
@@ -185,11 +311,21 @@ export function StrategyLabPage() {
                     )}
                   </FormField>
                 </div>
+                <StakingFields
+                  legKey={key}
+                  currency={draft.currency}
+                  draft={draft.staking[key]}
+                  errors={errors}
+                  onChange={(patch) => updateStaking(key, patch)}
+                />
               </div>
             </Panel>
           ))}
         </div>
         {errors.legs ? <ErrorNotice message={errors.legs} /> : null}
+        {LEG_KEYS.some((k) => draft.staking[k].mode !== 'flat') ? (
+          <Notice tone="info">{PROGRESSION_CAUTION}</Notice>
+        ) : null}
 
         <Panel
           title="Bankroll and risk"

@@ -1,11 +1,19 @@
 import {
   LEG_KEYS,
+  MAX_CUSTOM_SEQUENCE_LENGTH,
+  MAX_PROGRESSION_MULTIPLIER_X100,
+  MAX_PROGRESSION_STEPS,
+  MIN_PROGRESSION_MULTIPLIER_X100,
   parseMajorAmountToMinor,
   parseMultiplierX100,
+  progressionConfigSchema,
   SAMPLE_TWO_LEG_CONFIG,
   type BacktestRequestInput,
   type CurrencyCode,
   type LegKey,
+  type ProgressionConfig,
+  type ProgressionMode,
+  type StakingPlan,
 } from '@aviator/shared';
 
 /**
@@ -20,9 +28,45 @@ export interface LegDraft {
   target: string;
 }
 
+/** How a leg stakes: its fixed stake every round ('flat') or a progression. */
+export type StakingMode = 'flat' | ProgressionMode;
+
+export const STAKING_MODE_LABELS: Record<StakingMode, string> = {
+  flat: 'Flat (same stake every round)',
+  fixed: 'Fixed progression (same stake, step limit)',
+  martingale: 'Martingale (multiply after a loss)',
+  capped_martingale: 'Capped Martingale (multiply, with a stake cap)',
+  custom: 'Custom sequence',
+};
+
+/**
+ * One leg's staking progression, as typed. The progression's base stake is always the leg's
+ * own stake, so it is not entered here.
+ */
+export interface StakingDraft {
+  mode: StakingMode;
+  multiplier: string;
+  maxSteps: string;
+  maxStake: string;
+  maxExposure: string;
+  sequence: string;
+}
+
+export function initialStakingDraft(): StakingDraft {
+  return {
+    mode: 'flat',
+    multiplier: '2.00',
+    maxSteps: '',
+    maxStake: '',
+    maxExposure: '',
+    sequence: '',
+  };
+}
+
 export interface StrategyDraft {
   currency: CurrencyCode;
   legs: Record<LegKey, LegDraft>;
+  staking: Record<LegKey, StakingDraft>;
   bankroll: string;
   policy: 'skip_leg' | 'stop_run';
   stopBelow: string;
@@ -40,6 +84,12 @@ export type FieldId =
   | `leg${LegKey}-label`
   | `leg${LegKey}-stake`
   | `leg${LegKey}-target`
+  | `leg${LegKey}-mode`
+  | `leg${LegKey}-multiplier`
+  | `leg${LegKey}-maxSteps`
+  | `leg${LegKey}-maxStake`
+  | `leg${LegKey}-maxExposure`
+  | `leg${LegKey}-sequence`
   | 'legs'
   | 'bankroll'
   | 'policy'
@@ -73,6 +123,7 @@ export function initialDraft(): StrategyDraft {
   return {
     currency: sample.currency,
     legs: { A: leg('A'), B: leg('B') },
+    staking: { A: initialStakingDraft(), B: initialStakingDraft() },
     bankroll: '10000',
     policy: 'skip_leg',
     stopBelow: '',
@@ -160,6 +211,7 @@ export function buildRequest(
     }
   }
 
+  const staking = stakingInput(draft, legs, money, errors);
   const dataset = datasetInput(draft, errors);
   if (Object.keys(errors).length > 0) return { errors };
   return {
@@ -183,8 +235,147 @@ export function buildRequest(
         eventFrom: dataset.eventFrom ?? null,
         eventTo: dataset.eventTo ?? null,
       },
+      // Sent only when some leg uses a progression, so flat runs are requested exactly as before.
+      ...(staking === null ? {} : { staking }),
     },
   };
+}
+
+type MoneyParser = (
+  text: string,
+  field: FieldId,
+  options?: { optional?: boolean; positive?: boolean },
+) => number | null;
+
+/**
+ * The staking plan for the draft, or null when every leg is flat. Each progression starts at
+ * its leg's stake; the shared schema then checks the whole configuration (for example that no
+ * step's stake overflows), and any problem is reported on that leg's staking mode.
+ */
+function stakingInput(
+  draft: StrategyDraft,
+  legs: BacktestRequestInput['strategy']['legs'],
+  money: MoneyParser,
+  errors: FieldErrors,
+): StakingPlan | null {
+  const plan: StakingPlan = { schemaVersion: 1, legs: { A: null, B: null } };
+  for (const key of LEG_KEYS) {
+    const d = draft.staking[key];
+    if (d.mode === 'flat') continue;
+    if (!legs[key].enabled) {
+      errors[`leg${key}-mode`] = 'Enable the leg or set it back to flat stakes.';
+      continue;
+    }
+    const base = legs[key].stakeMinor;
+    const before = Object.keys(errors).length;
+    const field = (name: 'multiplier' | 'maxSteps' | 'maxStake' | 'maxExposure' | 'sequence') =>
+      `leg${key}-${name}` as const;
+    const required = (text: string, name: 'maxStake' | 'maxExposure') => {
+      if (text.trim() === '') {
+        errors[field(name)] = 'Required for this mode.';
+        return null;
+      }
+      return money(text, field(name));
+    };
+    const multiplier = (): number => {
+      try {
+        const value = parseMultiplierX100(d.multiplier);
+        if (value >= MIN_PROGRESSION_MULTIPLIER_X100 && value <= MAX_PROGRESSION_MULTIPLIER_X100) {
+          return value;
+        }
+      } catch {
+        // Reported below.
+      }
+      errors[field('multiplier')] =
+        `Enter a multiplier from ${MIN_PROGRESSION_MULTIPLIER_X100 / 100} to ${MAX_PROGRESSION_MULTIPLIER_X100 / 100} (at most two decimals).`;
+      return 0;
+    };
+    const steps = (): number => {
+      const text = d.maxSteps.trim();
+      if (!POSITIVE_INT.test(text) || Number(text) < 1 || Number(text) > MAX_PROGRESSION_STEPS) {
+        errors[field('maxSteps')] = `Enter a whole number from 1 to ${MAX_PROGRESSION_STEPS}.`;
+        return 0;
+      }
+      return Number(text);
+    };
+    const common = { schemaVersion: 1, currency: draft.currency, winResetPolicy: 'reset_to_base' };
+    let config: unknown;
+    switch (d.mode) {
+      case 'fixed':
+        config = {
+          ...common,
+          mode: 'fixed',
+          baseStakeMinor: base,
+          limits: {
+            maxSteps: steps(),
+            maxStakeMinor: money(d.maxStake, field('maxStake'), { optional: true }),
+            maxCycleExposureMinor: money(d.maxExposure, field('maxExposure'), { optional: true }),
+          },
+        };
+        break;
+      case 'martingale':
+        config = {
+          ...common,
+          mode: 'martingale',
+          baseStakeMinor: base,
+          multiplierX100: multiplier(),
+          limits: {
+            maxSteps: steps(),
+            maxStakeMinor: money(d.maxStake, field('maxStake'), { optional: true }),
+            maxCycleExposureMinor: required(d.maxExposure, 'maxExposure'),
+          },
+        };
+        break;
+      case 'capped_martingale':
+        config = {
+          ...common,
+          mode: 'capped_martingale',
+          baseStakeMinor: base,
+          multiplierX100: multiplier(),
+          limits: {
+            maxSteps: steps(),
+            maxStakeMinor: required(d.maxStake, 'maxStake'),
+            maxCycleExposureMinor: money(d.maxExposure, field('maxExposure'), { optional: true }),
+          },
+        };
+        break;
+      case 'custom': {
+        const parts = d.sequence
+          .split(',')
+          .map((t) => t.trim())
+          .filter((t) => t !== '');
+        const stakes = parts.map((t) => parseMajorAmountToMinor(t, draft.currency));
+        if (parts.length === 0 || parts.length > MAX_CUSTOM_SEQUENCE_LENGTH) {
+          errors[field('sequence')] =
+            `Enter 1–${MAX_CUSTOM_SEQUENCE_LENGTH} stakes separated by commas, starting with the leg's stake.`;
+        } else if (stakes.some((v) => v === null || v <= 0)) {
+          errors[field('sequence')] =
+            'Each stake must be an amount above zero, such as 500 or 500.50.';
+        } else if (stakes[0] !== base) {
+          errors[field('sequence')] = "The sequence must start with the leg's stake.";
+        }
+        config = {
+          ...common,
+          mode: 'custom',
+          stakesMinor: stakes,
+          afterFinalStep: 'stop',
+          limits: {
+            maxStakeMinor: money(d.maxStake, field('maxStake'), { optional: true }),
+            maxCycleExposureMinor: money(d.maxExposure, field('maxExposure'), { optional: true }),
+          },
+        };
+        break;
+      }
+    }
+    if (Object.keys(errors).length > before) continue;
+    const parsed = progressionConfigSchema.safeParse(config);
+    if (!parsed.success) {
+      errors[`leg${key}-mode`] = parsed.error.issues[0]?.message ?? 'Invalid progression.';
+      continue;
+    }
+    plan.legs[key] = parsed.data as ProgressionConfig;
+  }
+  return plan.legs.A === null && plan.legs.B === null ? null : plan;
 }
 
 /** The dataset part as raw text (dates are validated and normalised by the server). */
@@ -204,6 +395,14 @@ export function datasetInput(draft: StrategyDraft, errors: FieldErrors = {}) {
 }
 
 const SERVER_PATHS: [RegExp, FieldId][] = [
+  ...LEG_KEYS.flatMap((k): [RegExp, FieldId][] => [
+    [new RegExp(`^staking\\.legs\\.${k}\\.multiplierX100`), `leg${k}-multiplier`],
+    [new RegExp(`^staking\\.legs\\.${k}\\.limits\\.maxSteps`), `leg${k}-maxSteps`],
+    [new RegExp(`^staking\\.legs\\.${k}\\.limits\\.maxStakeMinor`), `leg${k}-maxStake`],
+    [new RegExp(`^staking\\.legs\\.${k}\\.limits\\.maxCycleExposureMinor`), `leg${k}-maxExposure`],
+    [new RegExp(`^staking\\.legs\\.${k}\\.stakesMinor`), `leg${k}-sequence`],
+    [new RegExp(`^staking\\.legs\\.${k}`), `leg${k}-mode`],
+  ]),
   [/^strategy\.legs\.A\.label/, 'legA-label'],
   [/^strategy\.legs\.A\.stakeMinor/, 'legA-stake'],
   [/^strategy\.legs\.A\.cashoutTargetX100/, 'legA-target'],

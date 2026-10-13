@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   apiErrorSchema,
+  backtestRequestSchema,
   BOOTSTRAP_ALGORITHM_VERSION,
   maxPathsForSample,
   runBootstrap,
@@ -15,7 +16,14 @@ import { migrate } from '../src/db/migrate.js';
 import { MIGRATIONS } from '../src/db/migrations/index.js';
 import { insertRound } from '../src/db/repositories/rounds.js';
 import { FAILED_ANALYSIS_MESSAGE } from '../src/simulations/analysis.js';
-import { createTestDb, startTestServer } from './helpers.js';
+import {
+  createTestDb,
+  insertLegacyRun,
+  MIGRATION_006_LEDGER_COLUMNS,
+  MIGRATION_006_RUN_COLUMNS,
+  startTestServer,
+  withoutColumns,
+} from './helpers.js';
 
 // SYNTHETIC TEST FIXTURES: invented rounds used only to exercise the analysis API.
 // Rows inserted with isSynthetic=false exist only in temporary in-memory test databases.
@@ -428,22 +436,27 @@ describe('simulation_analyses integrity', () => {
     const legacy = openDatabase(':memory:');
     migrate(legacy, MIGRATIONS.slice(0, 3));
     seedSeries(legacy, MULTIPLIERS);
+    // A run written exactly as the application wrote it on schema 3.
+    const runId = insertLegacyRun(legacy, backtestRequestSchema.parse(backtestRequest()));
+    const before = {
+      rounds: legacy.prepare('SELECT * FROM rounds ORDER BY id').all(),
+      runs: legacy.prepare('SELECT * FROM simulation_runs ORDER BY id').all(),
+      ledger: legacy.prepare('SELECT * FROM ledger_entries ORDER BY id').all(),
+    };
+    expect(migrate(legacy)).toEqual({ applied: [4, 5, 6], currentVersion: 6 });
+    expect(legacy.prepare('SELECT * FROM rounds ORDER BY id').all()).toEqual(before.rounds);
+    // Existing columns are untouched; columns added later are NULL.
+    const runs = legacy.prepare('SELECT * FROM simulation_runs ORDER BY id').all();
+    expect(withoutColumns(runs, MIGRATION_006_RUN_COLUMNS)).toEqual(before.runs);
+    expect(runs.every((r) => (r as { staking_json: unknown }).staking_json === null)).toBe(true);
+    const ledger = legacy.prepare('SELECT * FROM ledger_entries ORDER BY id').all();
+    expect(withoutColumns(ledger, MIGRATION_006_LEDGER_COLUMNS)).toEqual(before.ledger);
     const legacyServer = await startTestServer(legacy);
     try {
-      const run = await createRun(backtestRequest(), legacyServer.baseUrl);
-      const before = {
-        rounds: legacy.prepare('SELECT * FROM rounds ORDER BY id').all(),
-        runs: legacy.prepare('SELECT * FROM simulation_runs ORDER BY id').all(),
-        ledger: legacy.prepare('SELECT * FROM ledger_entries ORDER BY id').all(),
-      };
-      expect(migrate(legacy)).toEqual({ applied: [4, 5], currentVersion: 5 });
-      expect(legacy.prepare('SELECT * FROM rounds ORDER BY id').all()).toEqual(before.rounds);
-      expect(legacy.prepare('SELECT * FROM simulation_runs ORDER BY id').all()).toEqual(
-        before.runs,
+      const run = simulationRunDtoSchema.parse(
+        await (await fetch(`${legacyServer.baseUrl}/api/simulations/${runId}`)).json(),
       );
-      expect(legacy.prepare('SELECT * FROM ledger_entries ORDER BY id').all()).toEqual(
-        before.ledger,
-      );
+      expect(run.staking).toBeNull();
       const analysis = await analyseOk(run.id, { paths: 20, seed: 3 }, legacyServer.baseUrl);
       expect(analysis.datasetSha256).toBe(run.datasetSha256);
     } finally {

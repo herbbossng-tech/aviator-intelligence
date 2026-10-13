@@ -5,6 +5,11 @@ import {
   twoLegStrategyConfigSchema,
   backtestDatasetReportSchema,
   resolvedDatasetSchema,
+  legProgressionEntrySchema,
+  LEG_KEYS,
+  progressionConfigKey,
+  stakingPlanIssues,
+  stakingPlanSchema,
   type BacktestDataset,
   type BacktestDatasetReport,
   type BacktestResult,
@@ -12,6 +17,7 @@ import {
   type LedgerResponse,
   type SimulationRunDto,
   type SimulationSettings,
+  type StakingPlan,
   type TwoLegStrategyConfig,
 } from '@aviator/shared';
 import { z } from 'zod';
@@ -165,6 +171,8 @@ export function loadReplayRounds(db: Db, dataset: BacktestDataset): ReplayRound[
 export interface CompletedRunInput {
   strategy: TwoLegStrategyConfig;
   settings: SimulationSettings;
+  /** The staking plan the replay used, or null for flat stakes. */
+  staking: StakingPlan | null;
   datasetRequest: BacktestDataset;
   report: BacktestDatasetReport;
   datasetSha256: string;
@@ -182,8 +190,8 @@ export function insertCompletedRun(db: Db, input: CompletedRunInput): number {
         `INSERT INTO simulation_runs (
            strategy_snapshot_json, settings_json, dataset_json, currency, starting_bankroll_minor,
            status, ending_bankroll_minor, rounds_processed, created_at, started_at, completed_at,
-           summary_json, stop_reason, dataset_sha256)
-         VALUES (?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?)`,
+           summary_json, stop_reason, dataset_sha256, staking_json)
+         VALUES (?, ?, ?, ?, ?, 'completed', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         JSON.stringify(input.strategy),
@@ -199,14 +207,16 @@ export function insertCompletedRun(db: Db, input: CompletedRunInput): number {
         JSON.stringify(summary),
         summary.stopReason,
         input.datasetSha256,
+        input.staking === null ? null : JSON.stringify(input.staking),
       ).lastInsertRowid,
   );
   const insertEntry = db.prepare(
     `INSERT INTO ledger_entries (
        simulation_run_id, round_id, sequence_no, leg_key, stake_minor, cashout_target_x100,
        gross_return_minor, net_minor, result, bankroll_after_minor, created_at,
-       round_multiplier_x100, bankroll_before_minor)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       round_multiplier_x100, bankroll_before_minor, progression_step, requested_stake_minor,
+       cycle_loss_before_minor, cycle_loss_after_minor, skip_reason, progression_active)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   for (const round of input.result.rounds) {
     for (const leg of round.legs) {
@@ -224,6 +234,12 @@ export function insertCompletedRun(db: Db, input: CompletedRunInput): number {
         input.completedAt,
         round.multiplierX100,
         round.bankrollBeforeMinor,
+        leg.progression?.step ?? null,
+        leg.progression?.requestedStakeMinor ?? null,
+        leg.progression?.cycleLossBeforeMinor ?? null,
+        leg.progression?.cycleLossAfterMinor ?? null,
+        leg.progression?.skipReason ?? null,
+        leg.progression === undefined ? null : leg.progression.active ? 1 : 0,
       );
     }
   }
@@ -233,6 +249,7 @@ export function insertCompletedRun(db: Db, input: CompletedRunInput): number {
 export interface FailedRunInput {
   strategy: TwoLegStrategyConfig;
   settings: SimulationSettings;
+  staking: StakingPlan | null;
   datasetRequest: BacktestDataset;
   report: BacktestDatasetReport | null;
   errorMessage: string;
@@ -246,8 +263,8 @@ export function insertFailedRun(db: Db, input: FailedRunInput): number {
       .prepare(
         `INSERT INTO simulation_runs (
            strategy_snapshot_json, settings_json, dataset_json, currency, starting_bankroll_minor,
-           status, error_message, created_at, started_at)
-         VALUES (?, ?, ?, ?, ?, 'failed', ?, ?, ?)`,
+           status, error_message, created_at, started_at, staking_json)
+         VALUES (?, ?, ?, ?, ?, 'failed', ?, ?, ?, ?)`,
       )
       .run(
         JSON.stringify(input.strategy),
@@ -258,6 +275,7 @@ export function insertFailedRun(db: Db, input: FailedRunInput): number {
         input.errorMessage,
         input.startedAt,
         input.startedAt,
+        input.staking === null ? null : JSON.stringify(input.staking),
       ).lastInsertRowid,
   );
 }
@@ -273,6 +291,7 @@ interface RunRow {
   dataset_json: string;
   dataset_sha256: string | null;
   summary_json: string | null;
+  staking_json: string | null;
 }
 
 const storedDatasetSchema = z.object({
@@ -281,7 +300,7 @@ const storedDatasetSchema = z.object({
 });
 
 const RUN_COLUMNS =
-  'id, status, created_at, completed_at, error_message, strategy_snapshot_json, settings_json, dataset_json, dataset_sha256, summary_json';
+  'id, status, created_at, completed_at, error_message, strategy_snapshot_json, settings_json, dataset_json, dataset_sha256, summary_json, staking_json';
 
 /** Only runs written by the backtest service (completed or failed) are listed. */
 const RUN_SCOPE = "status IN ('completed', 'failed')";
@@ -301,7 +320,7 @@ function toRunDto(row: RunRow): SimulationRunDto {
 
 function parseRunRow(row: RunRow): SimulationRunDto {
   const dataset = storedDatasetSchema.parse(JSON.parse(row.dataset_json));
-  return {
+  const run: SimulationRunDto = {
     id: row.id,
     status: row.status === 'completed' ? 'completed' : 'failed',
     createdAt: row.created_at,
@@ -314,7 +333,40 @@ function parseRunRow(row: RunRow): SimulationRunDto {
     datasetSha256: row.dataset_sha256,
     summary:
       row.summary_json === null ? null : backtestSummarySchema.parse(JSON.parse(row.summary_json)),
+    staking:
+      row.staking_json === null ? null : stakingPlanSchema.parse(JSON.parse(row.staking_json)),
   };
+  checkStakingConsistency(run);
+  return run;
+}
+
+/**
+ * A stored plan must still fit the stored strategy, and a stored summary must describe exactly
+ * the plan's progressions (same legs, modes and configuration keys). Nothing is repaired.
+ */
+function checkStakingConsistency({ staking, strategy, summary }: SimulationRunDto): void {
+  if (staking !== null) {
+    const issue = stakingPlanIssues(staking, strategy)[0];
+    if (issue) throw new Error(`stored staking plan: ${issue.message}`);
+  }
+  if (summary === null) return;
+  const progression = summary.progression;
+  if ((progression === undefined) !== (staking === null)) {
+    throw new Error('the stored summary does not match the stored staking plan');
+  }
+  if (progression === undefined || staking === null) return;
+  for (const key of LEG_KEYS) {
+    const config = staking.legs[key];
+    const leg = progression.legs[key];
+    if (config === null || leg === null) {
+      if (config !== leg)
+        throw new Error(`leg ${key}'s progression summary does not match the plan`);
+      continue;
+    }
+    if (leg.mode !== config.mode || leg.configKey !== progressionConfigKey(config)) {
+      throw new Error(`leg ${key}'s progression summary does not match the plan`);
+    }
+  }
 }
 
 export function listRuns(
@@ -352,6 +404,33 @@ interface LedgerRow {
   cashout_target_x100: number;
   gross_return_minor: number;
   net_minor: number;
+  progression_step: number | null;
+  requested_stake_minor: number | null;
+  cycle_loss_before_minor: number | null;
+  cycle_loss_after_minor: number | null;
+  skip_reason: string | null;
+  progression_active: number | null;
+}
+
+/** The progression fields of a ledger row, validated (a leg without a progression has none). */
+function progressionOf(row: LedgerRow, run: SimulationRunDto) {
+  if (row.progression_step === null) {
+    if (run.staking?.legs[row.leg_key]) {
+      throw new Error(`leg ${row.leg_key} has a progression but its ledger row has no fields`);
+    }
+    return undefined;
+  }
+  if (!run.staking?.legs[row.leg_key]) {
+    throw new Error(`leg ${row.leg_key} has progression fields but no progression`);
+  }
+  return legProgressionEntrySchema.parse({
+    step: row.progression_step,
+    requestedStakeMinor: row.requested_stake_minor,
+    cycleLossBeforeMinor: row.cycle_loss_before_minor,
+    cycleLossAfterMinor: row.cycle_loss_after_minor,
+    skipReason: row.skip_reason,
+    active: row.progression_active === 1 ? true : row.progression_active === 0 ? false : null,
+  });
 }
 
 /**
@@ -367,7 +446,9 @@ export function getLedgerPage(
     .prepare(
       `SELECT l.sequence_no, l.round_id, r.event_at, l.round_multiplier_x100,
               l.bankroll_before_minor, l.bankroll_after_minor, l.leg_key, l.result,
-              l.stake_minor, l.cashout_target_x100, l.gross_return_minor, l.net_minor
+              l.stake_minor, l.cashout_target_x100, l.gross_return_minor, l.net_minor,
+              l.progression_step, l.requested_stake_minor, l.cycle_loss_before_minor,
+              l.cycle_loss_after_minor, l.skip_reason, l.progression_active
          FROM ledger_entries l JOIN rounds r ON r.id = l.round_id
         WHERE l.simulation_run_id = ? AND l.sequence_no >= ? AND l.sequence_no < ?
         ORDER BY l.sequence_no, l.leg_key`,
@@ -389,6 +470,12 @@ export function getLedgerPage(
       };
       rounds.push(current);
     }
+    let progression;
+    try {
+      progression = progressionOf(row, run);
+    } catch (error) {
+      throw new StoredDataError({ simulationRunId: run.id }, error);
+    }
     current.legs.push({
       leg: row.leg_key,
       result: row.result,
@@ -396,6 +483,7 @@ export function getLedgerPage(
       cashoutTargetX100: row.cashout_target_x100,
       grossReturnMinor: row.gross_return_minor,
       netMinor: row.net_minor,
+      ...(progression === undefined ? {} : { progression }),
     });
   }
   return {
