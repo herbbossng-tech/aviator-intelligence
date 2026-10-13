@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { LEG_KEYS, type LegKey, type TwoLegStrategyConfig } from './legs.js';
 import {
+  PROGRESSION_MODES,
+  progressionConfigKey,
   progressionConfigSchema,
   type ProgressionBlockReason,
   type ProgressionConfig,
@@ -75,4 +77,20 @@ export function stakingPlanIssues(
 /** The legs a plan applies a progression to. */
 export function progressionLegs(plan: StakingPlan | null): LegKey[] {
   return plan === null ? [] : LEG_KEYS.filter((k) => plan.legs[k] !== null);
+}
+
+/** Identifies one leg's progression in analysis metadata: its mode and configuration key. */
+export const legStakingIdentitySchema = z
+  .object({
+    mode: z.enum(PROGRESSION_MODES),
+    configKey: z.string().min(1),
+  })
+  .strict();
+export type LegStakingIdentity = z.infer<typeof legStakingIdentitySchema>;
+
+/** Per-leg identity of a plan's progressions (null = flat stakes). */
+export function stakingIdentity(plan: StakingPlan): Record<LegKey, LegStakingIdentity | null> {
+  const of = (config: ProgressionConfig | null): LegStakingIdentity | null =>
+    config === null ? null : { mode: config.mode, configKey: progressionConfigKey(config) };
+  return { A: of(plan.legs.A), B: of(plan.legs.B) };
 }

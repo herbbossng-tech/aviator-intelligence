@@ -1,6 +1,7 @@
 import {
   resolvedDatasetSchema,
   simulationSettingsSchema,
+  stakingPlanSchema,
   SUPPORTED_ROBUSTNESS_RESULT_SCHEMA_VERSIONS,
   twoLegStrategyConfigSchema,
   verifyBlockRobustnessResult,
@@ -10,6 +11,7 @@ import {
 } from '@aviator/shared';
 import { z } from 'zod';
 import type { Db } from '../connection.js';
+import { configSnapshot } from './analyses.js';
 import { StoredDataError } from '../storedDataError.js';
 
 export interface NewRobustnessAnalysis {
@@ -38,11 +40,7 @@ export function insertRobustnessAnalysis(db: Db, a: NewRobustnessAnalysis): numb
         a.result.windows,
         a.result.sampleSize,
         a.datasetSha256,
-        JSON.stringify({
-          strategy: a.run.strategy,
-          settings: a.run.settings,
-          datasetRequest: a.run.datasetRequest,
-        }),
+        JSON.stringify(configSnapshot(a.run)),
         JSON.stringify(a.result),
         a.createdAt,
         a.completedAt,
@@ -72,12 +70,14 @@ const storedConfigSchema = z
     strategy: twoLegStrategyConfigSchema,
     settings: simulationSettingsSchema,
     datasetRequest: resolvedDatasetSchema,
+    /** Absent for flat-stake runs, and in every snapshot written before staking existed. */
+    staking: stakingPlanSchema.optional(),
   })
   .strict();
 
 /**
  * Every stored row is verified on read against its run: the result format version, the
- * configuration snapshot (it must equal the run's), the fingerprint, the declared columns,
+ * configuration snapshot (it must equal the run's, staking plan included), the fingerprint, the declared columns,
  * and the full cross-field verification of the result, including that its full-sample replay
  * equals the run's stored summary. A row that fails is reported (StoredDataError, HTTP 500),
  * never repaired or skipped.
@@ -94,7 +94,8 @@ function toDto(row: RobustnessRow, run: SimulationRunDto): RobustnessAnalysisDto
     if (
       JSON.stringify(config.strategy) !== JSON.stringify(run.strategy) ||
       JSON.stringify(config.settings) !== JSON.stringify(run.settings) ||
-      JSON.stringify(config.datasetRequest) !== JSON.stringify(run.datasetRequest)
+      JSON.stringify(config.datasetRequest) !== JSON.stringify(run.datasetRequest) ||
+      JSON.stringify(config.staking ?? null) !== JSON.stringify(run.staking)
     ) {
       throw new Error("the stored configuration differs from the run's");
     }
@@ -106,6 +107,7 @@ function toDto(row: RobustnessRow, run: SimulationRunDto): RobustnessAnalysisDto
       sampleSize: row.sample_size,
       strategy: config.strategy,
       settings: config.settings,
+      staking: config.staking ?? null,
       observedSummary: run.summary,
     });
     if (result.algorithmVersion !== row.algorithm_version) {

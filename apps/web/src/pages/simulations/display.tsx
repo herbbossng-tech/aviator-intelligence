@@ -58,6 +58,14 @@ export function describeProgression(config: ProgressionConfig, currency: Currenc
   return parts.join(' · ');
 }
 
+/** Uncertainty analysis of a run with a staking plan: how progressions are replayed. */
+export const BOOTSTRAP_PROGRESSION_NOTE =
+  "This run uses a staking progression. Every resampled path replays the run's stored plan: each progression starts at its first step with no cycle loss, and each leg then follows only its own results on that path. Bankroll skips, step, stake and exposure limits and the end of a custom sequence work exactly as in the backtest. Progression stakes grow with losing streaks, and resampling treats rounds as independent, so streaks appear only as often as independent draws produce them; any dependence between real rounds is not reflected. A progression does not create an edge or guarantee recovery.";
+
+/** Robustness analysis of a run with a staking plan: progression state at block boundaries. */
+export const ROBUSTNESS_PROGRESSION_NOTE =
+  'This run uses a staking progression. Like the bankroll, every progression restarts at each block: first step, no cycle loss, not stopped by any limit. A losing cycle still open at the end of one block does not continue into the next, while the full-sample replay carries it through, as the run did. A progression does not create an edge or guarantee recovery.';
+
 /** Signed money, e.g. +₦12.00 / -₦3.50. */
 export function formatSignedMinor(amountMinor: number, currency: CurrencyCode): string {
   return amountMinor > 0

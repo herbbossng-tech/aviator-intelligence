@@ -323,10 +323,14 @@ describe('Simulation run detail with a progression', () => {
     expect(dd('Skipped: bankroll could not fund')).toBe('1');
     expect(dd('Skipped: leg stopped by a limit')).toBe('1');
     expect(dd('Configuration key')).toMatch(/^fnv1a64:[0-9a-f]{16}$/);
-    // Analyses are not offered for progression runs.
-    expect(screen.queryByRole('link', { name: 'Open uncertainty analysis' })).toBeNull();
-    expect(screen.queryByRole('link', { name: 'Open robustness analysis' })).toBeNull();
-    expect(screen.getByText(/support\s+flat-stake runs only/)).toBeTruthy();
+    // Both analyses are offered, with how progressions are restarted.
+    expect(screen.getByRole('link', { name: 'Open uncertainty analysis' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Open robustness analysis' })).toBeTruthy();
+    expect(
+      screen.getByText(
+        /Staking progressions restart from their first step on every resampled path/,
+      ),
+    ).toBeTruthy();
 
     const ledger = await screen.findByRole('table', { name: 'Virtual ledger' });
     const rows = within(ledger).getAllByRole('row').slice(1);

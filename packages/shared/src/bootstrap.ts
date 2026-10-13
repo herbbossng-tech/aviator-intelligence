@@ -6,9 +6,10 @@ import {
   type BacktestSummary,
   type StopReason,
 } from './backtest.js';
-import type { TwoLegStrategyConfig } from './legs.js';
+import { LEG_KEYS, type LegKey, type TwoLegStrategyConfig } from './legs.js';
 import { roundMultiplierX100Schema } from './multiplier.js';
 import type { SimulationSettings } from './simulation.js';
+import { legStakingIdentitySchema, stakingIdentity, type StakingPlan } from './staking.js';
 
 /**
  * Uncertainty analysis of a completed virtual backtest by IID empirical bootstrap.
@@ -25,7 +26,9 @@ import type { SimulationSettings } from './simulation.js';
  *   distributed, and discards their order).
  * - Each path is replayed from the run's starting bankroll with the run's own strategy and
  *   settings, through the same replay loop as the historical backtest (createSummaryReplayer).
- *   Paths share nothing: every path starts again from the starting bankroll.
+ *   Paths share nothing: every path starts again from the starting bankroll and, for a leg
+ *   with a staking progression (the run's own stored plan), from the progression's first
+ *   step with no cycle loss. Each path's progressions then follow that path's own results.
  * - Randomness comes only from xoshiro128** seeded per path from (seed, path index), so
  *   results are reproducible from the seed, the sample (fingerprinted) and this version.
  */
@@ -212,6 +215,14 @@ export const ANALYSIS_WARNING_CODES = [
   'few_paths',
 ] as const;
 
+const bootstrapLegStakingSchema = legStakingIdentitySchema
+  .extend({
+    pathsStoppedByLimit: countWithDenominator.shape.count,
+    pathsWithBankrollSkips: countWithDenominator.shape.count,
+    denominator: countWithDenominator.shape.denominator,
+  })
+  .strict();
+
 export const bootstrapSummarySchema = z.object({
   algorithmVersion: z.string(),
   seed: z.number().int(),
@@ -262,6 +273,24 @@ export const bootstrapSummarySchema = z.object({
     denominator: z.number().int().min(1),
   }),
   warnings: z.array(z.object({ code: z.enum(ANALYSIS_WARNING_CODES), message: z.string() })),
+  /**
+   * Present only when the run used a staking plan (absent for flat-stake runs, whose results
+   * are unchanged). Records which progressions were replayed and how their state was handled,
+   * plus, per progression leg, how many paths ended with it stopped by a permanent limit and
+   * how many skipped at least one of its stakes because the bankroll could not fund it.
+   */
+  staking: z
+    .object({
+      statePolicy: z.literal('reset_each_path'),
+      legs: z
+        .object({
+          A: bootstrapLegStakingSchema.nullable(),
+          B: bootstrapLegStakingSchema.nullable(),
+        })
+        .strict(),
+    })
+    .strict()
+    .optional(),
 });
 export type BootstrapSummary = z.infer<typeof bootstrapSummarySchema>;
 
@@ -286,6 +315,7 @@ export function runBootstrap(
     | 'roundsReplayed'
     | 'stopReason'
   >,
+  staking: StakingPlan | null = null,
 ): BootstrapSummary {
   const { paths, seed } = analysisSettingsSchema.parse(options);
   const n = sample.length;
@@ -299,7 +329,9 @@ export function runBootstrap(
     );
   }
   for (const m of sample) roundMultiplierX100Schema.parse(m);
-  const replay = createSummaryReplayer(strategy, settings);
+  const replay = createSummaryReplayer(strategy, settings, staking);
+  const stoppedByLimit: Record<LegKey, number> = { A: 0, B: 0 };
+  const bankrollSkips: Record<LegKey, number> = { A: 0, B: 0 };
 
   const endings = new Float64Array(paths);
   const ddFraction = new Float64Array(paths);
@@ -322,6 +354,12 @@ export function runBootstrap(
     ddMinor[p] = summary.maxDrawdownMinor;
     replayedCounts[p] = summary.roundsReplayed;
     stopReasons[summary.stopReason] += 1;
+    for (const key of LEG_KEYS) {
+      const leg = summary.progression?.legs[key];
+      if (!leg) continue;
+      if (leg.finalStatus !== 'active') stoppedByLimit[key] += 1;
+      if (leg.skippedInsufficientBankroll > 0) bankrollSkips[key] += 1;
+    }
     if (summary.netProfitMinor > 0) positive += 1;
     else if (summary.netProfitMinor < 0) negative += 1;
     else zero += 1;
@@ -411,7 +449,24 @@ export function runBootstrap(
       denominator: paths,
     },
     warnings,
+    ...(staking === null ? {} : { staking: stakingMetadata(staking) }),
   };
+
+  function stakingMetadata(plan: StakingPlan): NonNullable<BootstrapSummary['staking']> {
+    const identity = stakingIdentity(plan);
+    const leg = (key: LegKey) => {
+      const id = identity[key];
+      return id === null
+        ? null
+        : {
+            ...id,
+            pathsStoppedByLimit: stoppedByLimit[key],
+            pathsWithBankrollSkips: bankrollSkips[key],
+            denominator: paths,
+          };
+    };
+    return { statePolicy: 'reset_each_path', legs: { A: leg('A'), B: leg('B') } };
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -151,10 +151,10 @@ This applies under the backtest's gross-return model, where the gross return is 
 - The backtester uses `createProgressionStepper(config)`: a compiled form of the same configuration that validates it once, caches each step's exact stake and gives the same stakes and transitions as `decideNextStake` / `resolveStake` (tests check this). It has no bankroll check of its own: the replay loop funds legs from the shared virtual bankroll.
 - A shortfall of funds is therefore **transient** in a backtest: the leg is skipped for that round with its state unchanged, rather than the engine's terminal `insufficient_bankroll` block. Step, stake and exposure limits and an exhausted custom sequence remain **permanent** and stop the leg for the rest of the run.
 - Legs never share progression state.
+- The uncertainty and robustness analyses replay a run's stored plan with the same compiled steppers. Each resampled path, the full sample and each chronological block start every progression afresh. See [UNCERTAINTY.md](UNCERTAINTY.md#runs-with-a-staking-progression) and [ROBUSTNESS.md](ROBUSTNESS.md#runs-with-a-staking-progression).
 
 ## Not included yet
 
-- Uncertainty and robustness analyses of runs that use progressions.
 - Win policies other than `reset_to_base`.
 - Recovery-target or other stake-sizing algorithms.
 

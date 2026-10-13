@@ -85,15 +85,6 @@ export function runAndStoreRobustness(
       'Only a completed run can be analysed; this run failed and has no results.',
     );
   }
-  if (run.staking !== null) {
-    // The resampling and block replays apply flat stakes only; analysing a progression run
-    // with them would silently describe a different strategy.
-    throw new HttpError(
-      409,
-      'run_not_analyzable',
-      'Runs that use a staking progression cannot be analysed yet; only flat-stake runs can.',
-    );
-  }
   const datasetSha256 = run.datasetSha256;
   preflight(run.dataset?.roundsEligible ?? 0, request.windows);
 
@@ -115,12 +106,13 @@ export function runAndStoreRobustness(
 
   let result: BlockRobustnessResult;
   try {
-    result = runBlockRobustness(rounds, run.strategy, run.settings, request);
+    result = runBlockRobustness(rounds, run.strategy, run.settings, request, run.staking);
     verifyBlockRobustnessResult(result, {
       windows: request.windows,
       sampleSize: rounds.length,
       strategy: run.strategy,
       settings: run.settings,
+      staking: run.staking,
       observedSummary: run.summary,
       rounds,
     });

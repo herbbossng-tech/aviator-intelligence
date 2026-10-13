@@ -235,35 +235,6 @@ describe('progression runs through the API', () => {
     expect(row.status).toBe('failed');
     expect(JSON.parse(row.staking_json)).toEqual(plan());
   });
-
-  it('refuses uncertainty and robustness analyses of progression runs (409)', async () => {
-    seedSeries(
-      db,
-      [...MULTIPLIERS, ...MULTIPLIERS, ...MULTIPLIERS, ...MULTIPLIERS, ...MULTIPLIERS],
-      0,
-    );
-    const run = await createRun(request(plan()));
-    for (const [path, body] of [
-      ['analyses', { paths: 10, seed: 1 }],
-      ['robustness', { windows: 2 }],
-    ] as const) {
-      const res = await fetch(`${server.baseUrl}/api/simulations/${run.id}/${path}`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      expect(res.status, path).toBe(409);
-      expect(apiErrorSchema.parse(await res.json()).error.code).toBe('run_not_analyzable');
-    }
-    const lists = await Promise.all(
-      ['analyses', 'robustness'].map(async (p) =>
-        (await fetch(`${server.baseUrl}/api/simulations/${run.id}/${p}`)).json(),
-      ),
-    );
-    expect(lists[0]).toMatchObject({ maxPaths: 0 });
-    expect(lists[1]).toMatchObject({ maxWindows: 0 });
-    expect(count('simulation_analyses') + count('simulation_robustness_analyses')).toBe(0);
-  });
 });
 
 describe('stored progression data', () => {

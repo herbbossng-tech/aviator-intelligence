@@ -139,7 +139,13 @@ Aviator Intelligence is a local-first research and simulation dashboard for the 
 ## In progress: staking progressions
 
 - **Increment 1 — engine** (`packages/shared/src/progression.ts`): fixed, Martingale, capped Martingale and custom-sequence progressions as a pure, deterministic state machine with exact integer stakes, explicit step, stake, exposure and bankroll limits that block rather than bend, and result binding to each decision. See [PROGRESSION.md](PROGRESSION.md).
-- **Increment 2 — backtest integration:** an optional per-leg staking plan for virtual backtests. Each leg progresses independently from its own results and is funded from the start-of-round bankroll (A, then B). An unfunded stake is skipped without counting as a loss or resetting the progression; permanent limits stop that leg for the rest of the run while the other continues. Auditable per-entry progression fields in the ledger and a per-leg progression summary. Additive migration 006 (old runs read as flat). Strategy lab mode selection (flat, fixed, Martingale, capped Martingale, custom) with validation, and progression details on the run page. Uncertainty and robustness analyses still accept flat-stake runs only. See [SIMULATION.md](SIMULATION.md#staking-progressions).
+- **Increment 2 — backtest integration:** an optional per-leg staking plan for virtual backtests. Each leg progresses independently from its own results and is funded from the start-of-round bankroll (A, then B). An unfunded stake is skipped without counting as a loss or resetting the progression; permanent limits stop that leg for the rest of the run while the other continues. Auditable per-entry progression fields in the ledger and a per-leg progression summary. Additive migration 006 (old runs read as flat). Strategy lab mode selection (flat, fixed, Martingale, capped Martingale, custom) with validation, and progression details on the run page. See [SIMULATION.md](SIMULATION.md#staking-progressions).
+- **Increment 3 — progression-aware analyses:** the uncertainty (IID bootstrap) and chronological robustness analyses replay a run's stored staking plan instead of refusing it.
+  - Each resampled path, the full sample and each block start every progression afresh, and the policy is recorded in the result.
+  - Per-leg results show how often a limit stopped the leg and how often the bankroll could not fund a stake.
+  - Configuration snapshots include the plan, and stored analyses are checked against their run on every read.
+  - No migration was needed, and flat-stake results are unchanged.
+  - See [UNCERTAINTY.md](UNCERTAINTY.md#runs-with-a-staking-progression) and [ROBUSTNESS.md](ROBUSTNESS.md#runs-with-a-staking-progression).
 - A progression changes stake sizes only. It does not predict rounds, create an edge or guarantee recovery or profit; all amounts are virtual.
 
 ## Planned for later phases
