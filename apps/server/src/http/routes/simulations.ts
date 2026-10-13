@@ -102,7 +102,7 @@ export function simulationsRouter(
     const sampleSize = run.status === 'completed' ? (run.dataset?.roundsEligible ?? null) : null;
     res.json({
       ...listAnalyses(db, run.id, query),
-      maxPaths: sampleSize === null ? 0 : maxPathsForSample(sampleSize),
+      maxPaths: sampleSize === null || run.staking !== null ? 0 : maxPathsForSample(sampleSize),
       sampleSize,
     });
   });
@@ -131,7 +131,7 @@ export function simulationsRouter(
       ...listRobustnessAnalyses(db, run, query),
       limit: query.limit,
       offset: query.offset,
-      maxWindows: sampleSize === null ? 0 : maxWindowsForSample(sampleSize),
+      maxWindows: sampleSize === null || run.staking !== null ? 0 : maxWindowsForSample(sampleSize),
       sampleSize,
     });
   });

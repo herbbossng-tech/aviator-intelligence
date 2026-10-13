@@ -670,3 +670,148 @@ export function cycleNetAfterWinMinor(
   if (net > max || net < -max) throw new RangeError('The cycle net exceeds the safe integer range');
   return Number(net);
 }
+
+// ---------------------------------------------------------------------------
+// Stepper: a compiled, fast path for deterministic replays
+// ---------------------------------------------------------------------------
+
+/** What the configuration requests next, under its own caps only (no bankroll). */
+export type ProgressionRequest =
+  | {
+      kind: 'stake';
+      step: number;
+      stakeMinor: number;
+      cycleLossBeforeMinor: number;
+    }
+  | {
+      kind: 'blocked';
+      reason: Exclude<ProgressionBlockReason, 'insufficient_bankroll'>;
+      step: number;
+      /** The stake the configuration requests at this step, or null if there is none. */
+      requestedStakeMinor: number | null;
+      cycleLossMinor: number;
+      state: ProgressionState;
+    }
+  | {
+      kind: 'exhausted';
+      reason: 'sequence_exhausted';
+      step: number;
+      cycleLossMinor: number;
+      state: ProgressionState;
+    };
+
+export interface ProgressionStepper {
+  readonly config: ProgressionConfig;
+  readonly configKey: string;
+  readonly initialState: ProgressionState;
+  /**
+   * The next stake under the configured caps. A ready state is never changed by asking; a cap
+   * returns a blocked (or, for a custom sequence, exhausted) state, which is terminal. Whether
+   * the stake can be funded is the caller's decision: a shortfall is not a progression event.
+   */
+  request(state: ProgressionState): ProgressionRequest;
+  /** Records the result of a stake placed at the state's current step. */
+  settle(state: ProgressionState, outcome: ProgressionOutcome): ProgressionState;
+}
+
+/**
+ * Compiles a configuration once for a replay: stakes are computed once per step and states are
+ * updated incrementally, with exactly the semantics of decideNextStake/resolveStake (minus the
+ * bankroll check, which a replay applies with its own skip or stop policy). States it produces
+ * pass parseProgressionState. It only accepts states it can trust: same configuration key and
+ * the expected status; anything else throws ProgressionError.
+ */
+export function createProgressionStepper(configInput: unknown): ProgressionStepper {
+  const config = parseProgressionConfig(configInput);
+  const configKey = progressionConfigKey(config);
+  const maxSteps = maxStepsOf(config);
+  const stakes: bigint[] = [];
+  const stakeFor = (step: number): bigint => (stakes[step] ??= stakeAt(config, step));
+  const own = (state: ProgressionState) => {
+    if (state.configKey !== configKey) {
+      throw new ProgressionError('config_mismatch', 'The state belongs to another configuration.');
+    }
+  };
+  const terminal = (state: ProgressionState): ProgressionRequest => {
+    if (state.status === 'exhausted') {
+      return {
+        kind: 'exhausted',
+        reason: 'sequence_exhausted',
+        step: state.step,
+        cycleLossMinor: state.cycleLossMinor,
+        state,
+      };
+    }
+    const requested = state.step < maxSteps ? stakeFor(state.step) : null;
+    return {
+      kind: 'blocked',
+      reason: state.blockReason as Exclude<ProgressionBlockReason, 'insufficient_bankroll'>,
+      step: state.step,
+      requestedStakeMinor: requested !== null && requested <= MAX_MINOR ? Number(requested) : null,
+      cycleLossMinor: state.cycleLossMinor,
+      state,
+    };
+  };
+  return {
+    config,
+    configKey,
+    initialState: createProgressionState(config),
+    request(state) {
+      own(state);
+      if (state.status === 'exhausted') return terminal(state);
+      if (state.status === 'blocked') {
+        if (state.blockReason === 'insufficient_bankroll') {
+          throw new ProgressionError(
+            'invalid_state',
+            'A stepper never records a bankroll block; this state is not from a replay.',
+          );
+        }
+        return terminal(state);
+      }
+      if (state.status !== 'ready') {
+        throw new ProgressionError('invalid_state', 'A stepper state must be ready or terminal.');
+      }
+      const cap = capReason(config, state.step, BigInt(state.cycleLossMinor));
+      if (cap === 'sequence_exhausted') return terminal({ ...state, status: 'exhausted' });
+      if (cap !== null) return terminal({ ...state, status: 'blocked', blockReason: cap });
+      const stake = stakeFor(state.step);
+      if (stake > MAX_MINOR) {
+        throw new ProgressionError('invalid_config', 'The stake exceeds the representable range.');
+      }
+      return {
+        kind: 'stake',
+        step: state.step,
+        stakeMinor: Number(stake),
+        cycleLossBeforeMinor: state.cycleLossMinor,
+      };
+    },
+    settle(state, outcome) {
+      own(state);
+      if (
+        state.status !== 'ready' ||
+        capReason(config, state.step, BigInt(state.cycleLossMinor)) !== null
+      ) {
+        throw new ProgressionError('no_pending_decision', 'No stake can be settled in this state.');
+      }
+      if (!PROGRESSION_OUTCOMES.includes(outcome)) {
+        throw new ProgressionError('invalid_input', "outcome must be 'win' or 'loss'");
+      }
+      const resolvedCount = state.resolvedCount + 1;
+      if (outcome === 'win') {
+        return {
+          ...state,
+          step: 0,
+          cycleLossMinor: 0,
+          cyclesCompleted: state.cyclesCompleted + 1,
+          resolvedCount,
+        };
+      }
+      return {
+        ...state,
+        step: state.step + 1,
+        cycleLossMinor: state.cycleLossMinor + Number(stakeFor(state.step)),
+        resolvedCount,
+      };
+    },
+  };
+}

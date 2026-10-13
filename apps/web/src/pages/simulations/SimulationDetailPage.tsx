@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { STOP_REASON_TEXT, type SimulationRunDto } from '@aviator/shared';
+import { STOP_REASON_TEXT, type LedgerResponse, type SimulationRunDto } from '@aviator/shared';
+
+type LedgerLeg = LedgerResponse['rounds'][number]['legs'][number];
 import { api } from '../../api/client';
 import { useApi } from '../../api/useApi';
 import { ErrorNotice } from '../../components/ErrorNotice';
@@ -20,8 +22,11 @@ import {
   BACKTEST_CAUTION,
   DatasetReportView,
   describeDatasetRequest,
+  describeProgression,
   formatSignedMinor,
+  PROGRESSION_CAUTION,
   signedPercent,
+  SKIP_REASON_TEXT,
 } from './display';
 
 const LEDGER_PAGE = 50;
@@ -65,6 +70,7 @@ function RunView({ run }: { run: SimulationRunDto }) {
         className="rounded-md border border-amber-400/30 bg-amber-400/5 px-4 py-3 text-sm text-amber-200"
       >
         {BACKTEST_CAUTION}
+        {run.staking === null ? null : <p className="mt-2">{PROGRESSION_CAUTION}</p>}
       </div>
 
       {run.status === 'failed' || summary === null ? (
@@ -120,29 +126,49 @@ function RunView({ run }: { run: SimulationRunDto }) {
             title="Uncertainty and robustness"
             subtitle="How sensitive is this result to the particular historical sequence?"
           >
-            <p className="text-sm text-slate-400">
-              Resample this run&apos;s {formatCount(run.dataset?.roundsEligible ?? 0)} observed
-              multipliers (IID bootstrap) and replay the same configuration on many resampled paths,
-              or replay separate chronological periods of the same data one at a time. Sensitivity
-              checks under stated assumptions, not predictions.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Link
-                to={`/simulations/${run.id}/uncertainty`}
-                className="inline-block rounded-md bg-slate-800 px-3 py-2 text-sm text-slate-200 ring-1 ring-slate-700 hover:bg-slate-700"
-              >
-                Open uncertainty analysis
-              </Link>
-              <Link
-                to={`/simulations/${run.id}/robustness`}
-                className="inline-block rounded-md bg-slate-800 px-3 py-2 text-sm text-slate-200 ring-1 ring-slate-700 hover:bg-slate-700"
-              >
-                Open robustness analysis
-              </Link>
-            </div>
+            {run.staking !== null ? (
+              <p className="text-sm text-slate-400">
+                Not available for this run: uncertainty and robustness analyses currently support
+                flat-stake runs only, and this run uses a staking progression.
+              </p>
+            ) : (
+              <>
+                <p className="text-sm text-slate-400">
+                  Resample this run&apos;s {formatCount(run.dataset?.roundsEligible ?? 0)} observed
+                  multipliers (IID bootstrap) and replay the same configuration on many resampled
+                  paths, or replay separate chronological periods of the same data one at a time.
+                  Sensitivity checks under stated assumptions, not predictions.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link
+                    to={`/simulations/${run.id}/uncertainty`}
+                    className="inline-block rounded-md bg-slate-800 px-3 py-2 text-sm text-slate-200 ring-1 ring-slate-700 hover:bg-slate-700"
+                  >
+                    Open uncertainty analysis
+                  </Link>
+                  <Link
+                    to={`/simulations/${run.id}/robustness`}
+                    className="inline-block rounded-md bg-slate-800 px-3 py-2 text-sm text-slate-200 ring-1 ring-slate-700 hover:bg-slate-700"
+                  >
+                    Open robustness analysis
+                  </Link>
+                </div>
+              </>
+            )}
           </Panel>
 
-          <Panel title="Per leg" subtitle="Win rate denominators are placed bets">
+          {summary.progression && run.staking ? (
+            <ProgressionSummaryPanel run={run} progression={summary.progression} />
+          ) : null}
+
+          <Panel
+            title="Per leg"
+            subtitle={
+              run.staking === null
+                ? 'Win rate denominators are placed bets'
+                : 'Win rate denominators are placed bets; for a progression leg, Stake is its base stake'
+            }
+          >
             <div className="overflow-x-auto">
               <table className="w-full min-w-[44rem] text-left text-sm">
                 <caption className="sr-only">Results per leg</caption>
@@ -226,6 +252,12 @@ function RunView({ run }: { run: SimulationRunDto }) {
                       ? `${money(leg.stakeMinor)} at ${formatMultiplierX100(leg.cashoutTargetX100)} (“${leg.label}”)`
                       : `Disabled (“${leg.label}”)`}
                   </dd>
+                  <dt className="text-slate-500">Leg {k} staking</dt>
+                  <dd className="text-slate-200">
+                    {progressionOf(run, k)
+                      ? describeProgression(progressionOf(run, k)!, currency)
+                      : 'Flat (same stake every round)'}
+                  </dd>
                 </div>
               );
             })}
@@ -270,6 +302,92 @@ function RunView({ run }: { run: SimulationRunDto }) {
   );
 }
 
+function progressionOf(run: SimulationRunDto, leg: 'A' | 'B') {
+  return run.staking?.legs[leg] ?? null;
+}
+
+const FINAL_STATUS_TEXT = {
+  active: 'Still active at the end',
+  blocked: 'Stopped by a limit',
+  exhausted: 'Sequence exhausted',
+} as const;
+
+function ProgressionSummaryPanel({
+  run,
+  progression,
+}: {
+  run: SimulationRunDto;
+  progression: NonNullable<NonNullable<SimulationRunDto['summary']>['progression']>;
+}) {
+  const currency = run.settings.currency;
+  const money = (v: number) => formatMinorAmount(v, currency);
+  return (
+    <Panel
+      title="Staking progression"
+      subtitle="Each leg progresses from its own results only; virtual stakes"
+    >
+      <div className="grid gap-6 md:grid-cols-2">
+        {(['A', 'B'] as const).map((k) => {
+          const leg = progression.legs[k];
+          const config = progressionOf(run, k);
+          if (leg === null || config === null) {
+            return (
+              <div key={k} className="text-sm text-slate-400">
+                <h3 className="mb-2 font-medium text-slate-200">Leg {k}</h3>
+                Flat stakes (no progression).
+              </div>
+            );
+          }
+          const rows: [string, string][] = [
+            ['Configuration', describeProgression(config, currency)],
+            [
+              'Final state',
+              leg.finalBlockReason === null
+                ? FINAL_STATUS_TEXT[leg.finalStatus]
+                : `${FINAL_STATUS_TEXT[leg.finalStatus]}: ${SKIP_REASON_TEXT[leg.finalBlockReason]}`,
+            ],
+            [
+              'Stopped from round',
+              leg.inactiveFromSequenceNo === null
+                ? '—'
+                : `#${formatCount(leg.inactiveFromSequenceNo + 1)}`,
+            ],
+            ['Step at the end (0 = base)', formatCount(leg.finalStep)],
+            [
+              'Highest step placed',
+              leg.maxStepPlaced === null ? '—' : formatCount(leg.maxStepPlaced),
+            ],
+            ['Open cycle loss at the end', money(leg.finalCycleLossMinor)],
+            ['Cycles completed (won)', formatCount(leg.cyclesCompleted)],
+            ['Skipped: bankroll could not fund', formatCount(leg.skippedInsufficientBankroll)],
+            ['Skipped: leg stopped by a limit', formatCount(leg.skippedInactive)],
+            ['Configuration key', leg.configKey],
+          ];
+          return (
+            <div key={k}>
+              <h3 className="mb-2 text-sm font-medium text-slate-200">Leg {k}</h3>
+              <dl className="grid gap-x-4 gap-y-1 text-sm sm:grid-cols-[minmax(0,13rem)_minmax(0,1fr)]">
+                {rows.map(([label, value]) => (
+                  <div key={label} className="contents">
+                    <dt className="text-slate-500">{label}</dt>
+                    <dd className="break-words text-slate-200">{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </div>
+          );
+        })}
+      </div>
+      {progression.roundsWithoutStake > 0 ? (
+        <p className="mt-4 text-sm text-slate-400">
+          {formatCount(progression.roundsWithoutStake)} round(s) were replayed after every
+          progression leg had stopped, so nothing was staked in them.
+        </p>
+      ) : null}
+    </Panel>
+  );
+}
+
 function describeStops(run: SimulationRunDto): string {
   const { risk, currency } = run.settings;
   const parts: string[] = [];
@@ -281,6 +399,20 @@ function describeStops(run: SimulationRunDto): string {
     parts.push(`drawdown ≥ ${(risk.maxDrawdownBps / 100).toFixed(2)}%`);
   if (risk.maxRounds !== null) parts.push(`after ${formatCount(risk.maxRounds)} rounds`);
   return parts.length === 0 ? 'None' : parts.join(' · ');
+}
+
+/** Progression detail for one ledger leg; the requested stake is never shown as placed. */
+function describeLedgerProgression(
+  p: NonNullable<LedgerLeg['progression']>,
+  money: (v: number) => string,
+): string {
+  const parts = [`step ${p.step}`];
+  if (p.skipReason !== null) {
+    if (p.requestedStakeMinor !== null) parts.push(`requested ${money(p.requestedStakeMinor)}`);
+    parts.push(SKIP_REASON_TEXT[p.skipReason]);
+  }
+  parts.push(`cycle loss ${money(p.cycleLossBeforeMinor)} → ${money(p.cycleLossAfterMinor)}`);
+  return ` · ${parts.join(' · ')}`;
 }
 
 const RESULT_TEXT = { win: 'Target reached', loss: 'Lost', skipped: 'Skipped' } as const;
@@ -346,6 +478,7 @@ function Ledger({ run }: { run: SimulationRunDto }) {
                           {l.result === 'skipped'
                             ? ''
                             : ` · staked ${money(l.stakeMinor)} · returned ${money(l.grossReturnMinor)}`}
+                          {l.progression ? describeLedgerProgression(l.progression, money) : ''}
                         </div>
                       ))}
                     </td>

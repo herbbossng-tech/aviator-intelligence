@@ -1,6 +1,6 @@
 # Staking progressions (fixed, Martingale, capped Martingale, custom)
 
-`packages/shared/src/progression.ts` models **virtual** staking progressions as a pure, deterministic state machine. This first increment is a domain engine only: it is **not yet connected** to the historical backtester, the API, the database or the UI.
+`packages/shared/src/progression.ts` models **virtual** staking progressions as a pure, deterministic state machine. Increment 1 added the engine. Increment 2 connects it to the historical backtester, the API, persistence and the Strategy lab: each leg of a backtest may use its own progression. How progressions behave inside a replay — funding, skips, permanent stops, the ledger and the summary — is described in [SIMULATION.md](SIMULATION.md#staking-progressions).
 
 > **Read this first.**
 >
@@ -146,16 +146,22 @@ This applies under the backtest's gross-return model, where the gross return is 
 - **Below 2.00×, a win can still leave the cycle negative.** For example, ₦4,000 winning at 1.50× after ₦3,500 of losses nets −₦1,500.
 - **Assumptions:** the target is reached, and there are no fees or platform deductions. It says nothing about whether the win is likely, affordable, or reached before a limit blocks the progression.
 
+## In backtests
+
+- The backtester uses `createProgressionStepper(config)`: a compiled form of the same configuration that validates it once, caches each step's exact stake and gives the same stakes and transitions as `decideNextStake` / `resolveStake` (tests check this). It has no bankroll check of its own: the replay loop funds legs from the shared virtual bankroll.
+- A shortfall of funds is therefore **transient** in a backtest: the leg is skipped for that round with its state unchanged, rather than the engine's terminal `insufficient_bankroll` block. Step, stake and exposure limits and an exhausted custom sequence remain **permanent** and stop the leg for the rest of the run.
+- Legs never share progression state.
+
 ## Not included yet
 
-- Using progressions in the historical backtester, robustness or uncertainty analyses.
-- API, persistence and UI.
+- Uncertainty and robustness analyses of runs that use progressions.
 - Win policies other than `reset_to_base`.
 - Recovery-target or other stake-sizing algorithms.
 
 ## Tests
 
 ```bash
-npx vitest run packages/shared/src/progression.test.ts
+npx vitest run packages/shared/src/progression.test.ts packages/shared/src/backtestProgression.test.ts
+npx vitest run apps/server/test/backtest-progression-api.test.ts apps/web/test/progression.test.tsx
 npm run check
 ```

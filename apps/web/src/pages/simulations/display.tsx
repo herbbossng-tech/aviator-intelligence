@@ -1,4 +1,11 @@
-import type { BacktestDatasetReport, CurrencyCode, SimulationRunDto } from '@aviator/shared';
+import type {
+  BacktestDatasetReport,
+  CurrencyCode,
+  LedgerSkipReason,
+  ProgressionConfig,
+  ProgressionMode,
+  SimulationRunDto,
+} from '@aviator/shared';
 import {
   formatCount,
   formatMinorAmount,
@@ -8,6 +15,48 @@ import {
 
 export const BACKTEST_CAUTION =
   'A backtest replays recorded rounds with virtual money. It does not predict future multipliers, and a positive result is not evidence that a configuration will be profitable.';
+
+/** Shown wherever a staking progression is configured or reported. */
+export const PROGRESSION_CAUTION =
+  'Progression amounts are virtual. Each leg progresses independently from its own results, funded from the bankroll available at the start of the round (leg A first). A leg the bankroll cannot cover is skipped for that round; a skip is not a loss and does not reset or lower its next stake. A step, stake or exposure limit permanently stops that leg. A progression only changes stake sizes: it does not predict rounds or create an edge, and it does not guarantee that losses are recovered.';
+
+export const PROGRESSION_MODE_TEXT: Record<ProgressionMode, string> = {
+  fixed: 'Fixed progression',
+  martingale: 'Martingale',
+  capped_martingale: 'Capped Martingale',
+  custom: 'Custom sequence',
+};
+
+/** Why a progression leg placed nothing in a round. */
+export const SKIP_REASON_TEXT: Record<LedgerSkipReason, string> = {
+  insufficient_bankroll: 'the bankroll could not fund the requested stake (not a loss)',
+  max_steps_reached: 'step limit reached; leg stopped',
+  max_stake_exceeded: 'next stake above the maximum stake; leg stopped',
+  cycle_exposure_exceeded: 'next stake above the maximum cycle exposure; leg stopped',
+  sequence_exhausted: 'custom sequence exhausted; leg stopped',
+};
+
+/** "Martingale ×2.00 · up to 4 steps · max stake ₦… · max cycle exposure ₦…" */
+export function describeProgression(config: ProgressionConfig, currency: CurrencyCode): string {
+  const money = (v: number) => formatMinorAmount(v, currency);
+  const parts: string[] = [PROGRESSION_MODE_TEXT[config.mode]];
+  if (config.mode === 'martingale' || config.mode === 'capped_martingale') {
+    parts[0] += ` ×${(config.multiplierX100 / 100).toFixed(2)}`;
+  }
+  if (config.mode === 'custom') {
+    parts.push(`stakes ${config.stakesMinor.map(money).join(', ')}`);
+  } else {
+    parts.push(`base ${money(config.baseStakeMinor)}`);
+    parts.push(`up to ${formatCount(config.limits.maxSteps)} step(s)`);
+  }
+  if (config.limits.maxStakeMinor !== null) {
+    parts.push(`max stake ${money(config.limits.maxStakeMinor)}`);
+  }
+  if (config.limits.maxCycleExposureMinor !== null) {
+    parts.push(`max cycle exposure ${money(config.limits.maxCycleExposureMinor)}`);
+  }
+  return parts.join(' · ');
+}
 
 /** Signed money, e.g. +₦12.00 / -₦3.50. */
 export function formatSignedMinor(amountMinor: number, currency: CurrencyCode): string {
@@ -76,6 +125,12 @@ export function AssumptionsList() {
       <li>
         If the bankroll cannot cover a stake, the chosen policy either skips that leg for the round
         (recorded as skipped, zero stake) or stops the run. Stops are checked after each round.
+      </li>
+      <li>
+        A leg may use a staking progression instead of a flat stake. Each leg&apos;s progression
+        follows only that leg&apos;s own results. It changes stake sizes only: it cannot predict
+        rounds, create an edge or guarantee that losses are recovered, and its limits can stop the
+        leg for the rest of the run.
       </li>
       <li>
         Risk of ruin is not estimated: a single historical path cannot support a defensible

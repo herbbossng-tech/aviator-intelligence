@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
   apiErrorSchema,
+  backtestRequestSchema,
   ROBUSTNESS_ALGORITHM_VERSION,
   ROBUSTNESS_RESULT_SCHEMA_VERSION,
   robustnessAnalysesListSchema,
@@ -17,7 +18,13 @@ import { insertRound } from '../src/db/repositories/rounds.js';
 import { getRun, loadReplayRounds } from '../src/db/repositories/simulations.js';
 import { HttpError } from '../src/http/errors.js';
 import { FAILED_ROBUSTNESS_MESSAGE, runAndStoreRobustness } from '../src/simulations/robustness.js';
-import { createTestDb, startTestServer } from './helpers.js';
+import {
+  createTestDb,
+  insertLegacyRun,
+  MIGRATION_006_RUN_COLUMNS,
+  startTestServer,
+  withoutColumns,
+} from './helpers.js';
 
 // SYNTHETIC TEST FIXTURES: invented rounds used only to exercise the robustness API.
 // Rows inserted with isSynthetic=false exist only in temporary in-memory test databases.
@@ -577,17 +584,23 @@ describe('simulation_robustness_analyses integrity', () => {
     const legacy = openDatabase(':memory:');
     migrate(legacy, MIGRATIONS.slice(0, 4));
     seedSeries(legacy, multipliers(90));
+    const runId = insertLegacyRun(legacy, backtestRequestSchema.parse(backtestRequest()));
+    const before = {
+      rounds: legacy.prepare('SELECT * FROM rounds ORDER BY id').all(),
+      runs: legacy.prepare('SELECT * FROM simulation_runs ORDER BY id').all(),
+    };
+    expect(migrate(legacy)).toEqual({ applied: [5, 6], currentVersion: 6 });
+    expect(legacy.prepare('SELECT * FROM rounds ORDER BY id').all()).toEqual(before.rounds);
+    expect(
+      withoutColumns(
+        legacy.prepare('SELECT * FROM simulation_runs ORDER BY id').all(),
+        MIGRATION_006_RUN_COLUMNS,
+      ),
+    ).toEqual(before.runs);
     const legacyServer = await startTestServer(legacy);
     try {
-      const run: SimulationRunDto = await createRun(backtestRequest(), legacyServer.baseUrl);
-      const before = {
-        rounds: legacy.prepare('SELECT * FROM rounds ORDER BY id').all(),
-        runs: legacy.prepare('SELECT * FROM simulation_runs ORDER BY id').all(),
-      };
-      expect(migrate(legacy)).toEqual({ applied: [5], currentVersion: 5 });
-      expect(legacy.prepare('SELECT * FROM rounds ORDER BY id').all()).toEqual(before.rounds);
-      expect(legacy.prepare('SELECT * FROM simulation_runs ORDER BY id').all()).toEqual(
-        before.runs,
+      const run: SimulationRunDto = simulationRunDtoSchema.parse(
+        await (await fetch(`${legacyServer.baseUrl}/api/simulations/${runId}`)).json(),
       );
       const analysis = await analyseOk(run.id, 3, legacyServer.baseUrl);
       expect(analysis.datasetSha256).toBe(run.datasetSha256);

@@ -22,7 +22,7 @@
 │   │   ├── config/env.ts       Zod-validated environment, loopback guard, .env loading
 │   │   ├── db/connection.ts    better-sqlite3 connection + pragmas
 │   │   ├── db/migrate.ts       transactional, versioned migration runner
-│   │   ├── db/migrations/      append-only migrations (001_initial_schema, 002_round_imports, 003_simulation_backtests, 004_simulation_analyses, 005_robustness_analyses)
+│   │   ├── db/migrations/      append-only migrations (001_initial_schema, 002_round_imports, 003_simulation_backtests, 004_simulation_analyses, 005_robustness_analyses, 006_backtest_progressions)
 │   │   ├── db/repositories/    all SQL lives here (rounds, imports, analytics, simulations, overview)
 │   │   ├── imports/            CSV/JSON parsing, record classification, preview store, transactional confirm
 │   │   ├── simulations/        transactional backtest run + ledger write, dataset hash; uncertainty analysis service
@@ -123,7 +123,7 @@ All tables use `INTEGER PRIMARY KEY AUTOINCREMENT` ids, which are stable, never 
 | `simulation_robustness_analyses` | `simulation_run_id`, `status` (`completed` only), `method`, `algorithm_version`, `result_schema_version`, `windows`, `sample_size`, `dataset_sha256`, `config_json`, `result_json`, timestamps                                             | migration 005; triggers require a completed run with the same `dataset_sha256` and refuse updates; FK → runs `ON DELETE CASCADE`                                                                                                                                                       |
 | `schema_migrations`              | `version`, `name`, `applied_at`                                                                                                                                                                                                            | managed by the runner                                                                                                                                                                                                                                                                  |
 
-Migration 003 (`simulation_backtests`) is also additive; see [SIMULATION.md](SIMULATION.md#persistence-and-failure-handling). Migration 004 (`simulation_analyses`) only adds a table; see [UNCERTAINTY.md](UNCERTAINTY.md#persistence). Migration 005 (`simulation_robustness_analyses`) only adds a table; see [ROBUSTNESS.md](ROBUSTNESS.md#persistence).
+Migration 003 (`simulation_backtests`) is also additive; see [SIMULATION.md](SIMULATION.md#persistence-and-failure-handling). Migration 004 (`simulation_analyses`) only adds a table; see [UNCERTAINTY.md](UNCERTAINTY.md#persistence). Migration 005 (`simulation_robustness_analyses`) only adds a table; see [ROBUSTNESS.md](ROBUSTNESS.md#persistence). Migration 006 (`backtest_progressions`) adds nullable staking columns to runs and ledger entries; see [SIMULATION.md](SIMULATION.md#persistence-and-failure-handling).
 
 Migration 002 (`round_imports`) is additive: it adds the `data_imports` columns, the counter triggers, the content-hash index and an index on `rounds (source, event_at)`. Migration 001 was not edited. SQLite cannot add table-level CHECK constraints to an existing table without rebuilding it, and rebuilding requires disabling foreign keys, so the counter rules are triggers.
 
