@@ -1,4 +1,5 @@
 import {
+  ANALYSIS_QUANTILE_LEVELS_BPS,
   blockBootstrapSummarySchema,
   MOVING_BLOCK_ALGORITHM_VERSION,
   movingBlockLayout,
@@ -84,7 +85,14 @@ const storedConfigSchema = z
 
 type Distribution = BlockBootstrapSummary['endingBankrollMinor'];
 
+/** Ordered, at exactly the standard quantile levels. */
 function ordered(d: Distribution): boolean {
+  if (
+    d.quantiles.length !== ANALYSIS_QUANTILE_LEVELS_BPS.length ||
+    d.quantiles.some((q, i) => q.levelBps !== ANALYSIS_QUANTILE_LEVELS_BPS[i])
+  ) {
+    return false;
+  }
   const values = [d.min, ...d.quantiles.map((q) => q.value), d.max];
   return values.every((v, i) => i === 0 || values[i - 1]! <= v);
 }
@@ -97,8 +105,12 @@ function ordered(d: Distribution): boolean {
  *   dataset fingerprint equal the run's;
  * - the summary passes the shared schema, and its seed, paths, sample size, block length and
  *   version equal the row's columns;
+ * - the sample size is the run's eligible sample (fixed by its fingerprint);
  * - the resampling layout (K, L, S) is the one the block length and sample size imply;
- * - every distribution is ordered, and every count sums to the number of paths;
+ * - every distribution is ordered at the standard quantile levels, and every count sums to
+ *   the number of paths;
+ * - the observed snapshot is the run's own summary, and the configured-boundary counts are
+ *   exactly the run's configured stops with their stop-reason counts;
  * - the staking metadata names exactly the run's progressions (absent for a flat run).
  * A row that fails is reported as StoredDataError (HTTP 500 stored_data_invalid).
  */
@@ -131,6 +143,9 @@ function toDto(row: BlockAnalysisRow, run: SimulationRunDto): BlockAnalysisDto {
     ) {
       throw new Error('the row columns differ from the summary');
     }
+    if (run.dataset !== null && row.sample_size !== run.dataset.roundsEligible) {
+      throw new Error("the sample size differs from the run's eligible sample");
+    }
     const layout = movingBlockLayout(row.sample_size, row.block_length);
     if (
       s.resampling.blocksPerPath !== layout.blocksPerPath ||
@@ -157,6 +172,35 @@ function toDto(row: BlockAnalysisRow, run: SimulationRunDto): BlockAnalysisDto {
         s.paths
     ) {
       throw new Error('the counts do not add up to the number of paths');
+    }
+    const r = run.summary;
+    if (
+      r === null ||
+      s.observed.endingBankrollMinor !== r.endingBankrollMinor ||
+      s.observed.netProfitMinor !== r.netProfitMinor ||
+      s.observed.maxDrawdownFraction !== r.maxDrawdownFraction ||
+      s.observed.maxDrawdownMinor !== r.maxDrawdownMinor ||
+      s.observed.roundsReplayed !== r.roundsReplayed ||
+      s.observed.stopReason !== r.stopReason
+    ) {
+      throw new Error("the observed snapshot differs from the run's summary");
+    }
+    const { risk } = run.settings;
+    const lower = s.configuredBoundaries.lowerBankrollStop;
+    const drawdown = s.configuredBoundaries.maxDrawdownStop;
+    if (
+      (lower === null
+        ? risk.stopBelowBankrollMinor !== null
+        : lower.thresholdMinor !== risk.stopBelowBankrollMinor ||
+          lower.count !== s.stopReasons.stop_below ||
+          lower.denominator !== s.paths) ||
+      (drawdown === null
+        ? risk.maxDrawdownBps !== null
+        : drawdown.thresholdBps !== risk.maxDrawdownBps ||
+          drawdown.count !== s.stopReasons.max_drawdown ||
+          drawdown.denominator !== s.paths)
+    ) {
+      throw new Error("the configured boundaries do not match the run's stops");
     }
     if ((s.staking === undefined) !== (run.staking === null)) {
       throw new Error("the summary's staking metadata does not match the run's plan");

@@ -151,9 +151,10 @@ Aviator Intelligence is a local-first research and simulation dashboard for the 
   - Step 1 (sampling primitives in `packages/shared/src/blockBootstrap.ts`, with deterministic tests) is implemented and committed locally on `feat/moving-block-bootstrap`.
   - Step 2 (the shared analysis engine `runBlockBootstrap` in `packages/shared/src/blockBootstrapAnalysis.ts`, replaying every path through the canonical replay loop) is implemented and committed locally on the same branch.
   - Step 3 (migration 007, block-analysis storage with read-time checks, and the `/api/simulations/:id/block-analyses` routes) is implemented and committed locally on the same branch.
-  - Step 4 (the method selector, block-length form, block results and saved block analyses on the uncertainty page, with methodology text and UI tests) is implemented and committed locally on the same branch. The "Compare methods" table from the design is deferred for an owner decision.
+  - Step 4 (the method selector, block-length form, block results and saved block analyses on the uncertainty page, with methodology text and UI tests) is implemented and committed locally on the same branch.
+  - The method comparison table ("How the two methods differ", describing both methods under the selector) was added after step 4 on the owner's authorisation, and is implemented, tested and committed locally. A side-by-side table of the two methods' figures is not built.
+  - Step 5 (final regression review of the whole branch) is done locally. Its fixes (four extra read-time checks on stored block analyses) are tested and committed locally. The pull request is not opened: that, with pushing, needs the owner's authorisation.
   - Nothing for increment 4 is pushed, opened as a PR, merged or verified on `main`.
-  - The final review (step 5) is not started.
 - A progression changes stake sizes only. It does not predict rounds, create an edge or guarantee recovery or profit; all amounts are virtual.
 
 ### Progression tracker
@@ -168,11 +169,11 @@ Aviator Intelligence is a local-first research and simulation dashboard for the 
 | 4 — step 2: shared analysis engine          | Yes                 | Yes (local) | Yes (local) | No     | No                      | No                           |
 | 4 — step 3: storage and API (migration 007) | Yes                 | Yes (local) | Yes (local) | No     | No                      | No                           |
 | 4 — step 4: UI                              | Yes                 | Yes (local) | Yes (local) | No     | No                      | No                           |
-| 4 — step 5: final review and PR             | Not started         | No          | No          | No     | No                      | No                           |
+| 4 — step 5: final review (PR not opened)    | Yes                 | Yes (local) | Yes (local) | No     | No                      | No                           |
 
 No pull request has been opened for increment 4.
 
-Next required approval: the owner's review of the local step 4 implementation (including the deferred comparison table), and authorisation to begin step 5.
+Next required approval: the owner's review of the step 5 report, and authorisation to push `feat/moving-block-bootstrap` and open the increment 4 pull request.
 
 ## Planned for later phases
 

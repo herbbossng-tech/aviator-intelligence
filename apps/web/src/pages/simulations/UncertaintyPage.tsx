@@ -18,6 +18,7 @@ import { Panel } from '../../components/Panel';
 import { formatCount, formatMinorAmount, formatTimestamp } from '../../lib/format';
 import { formatPercent } from '../../lib/stats';
 import { BLOCK_UNCERTAINTY_CAUTION, BlockAnalyses } from './BlockBootstrapAnalyses';
+import { MethodComparison } from './MethodComparison';
 import { BOOTSTRAP_PROGRESSION_NOTE, describeProgression } from './display';
 import {
   Badge,
@@ -129,6 +130,9 @@ export function UncertaintyPage() {
         {method === 'iid' ? UNCERTAINTY_CAUTION : BLOCK_UNCERTAINTY_CAUTION}
       </div>
       <MethodSelector method={method} onChange={chooseMethod} />
+      <div className="mb-6">
+        <MethodComparison selected={method} />
+      </div>
       {run.status === 'loading' ? <p className="text-sm text-slate-400">Loading run…</p> : null}
       {run.status === 'error' ? <ErrorNotice message={run.message} /> : null}
       {run.status === 'success' ? (

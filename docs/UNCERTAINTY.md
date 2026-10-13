@@ -217,6 +217,8 @@ The same page offers a second, separate method: the non-circular **moving-block 
 - Below the fields, a live line shows how each path is built for the chosen b (for example "15 blocks of 4 rounds", or "142 blocks of 7 rounds plus one of 6") and the number of possible block starts. It says in advance when there will be fewer than 100 possible starts (the `few_candidate_blocks` warning), and when b is shorter than a progression's step limit.
 - A sample under 20 rounds (the list returns `maxBlockLength: 0`) shows an explanation instead of the form.
 
+**Comparing the methods.** Under the selector, a "How the two methods differ" table describes both methods in parallel columns: sampling unit, whether recorded order is kept, main purpose, settings required, losing-streak reporting, and assumptions and limitations. Notes below it state that block paths can repeat rounds, blocks may overlap and blocks never wrap around. They also state that neither method predicts multipliers, shows an edge, ranks configurations or shows that rounds depend on each other. The selected method's column is marked "(selected)" in text.
+
 **Results.** Block results are labelled "Moving-block results", carry the badge "Resampled (block bootstrap, b = …)", and list the method, paths, sample size n, block length b, blocks per path (K and the last block's length L), possible block starts (S = n − b + 1), seed, algorithm version and timestamps. They show the same distributions, net-outcome counts, configured boundaries, stop reasons and per-leg staking figures as IID results, plus:
 
 - **Longest losing streak (rounds):** for each path, the most consecutive rounds with a negative combined net outcome across both legs; a break-even round ends the streak. The observed value is the run's own figure. A streak can continue across the join between two blocks. IID results do not report it.
@@ -230,7 +232,7 @@ The same page offers a second, separate method: the non-circular **moving-block 
 ## Deferred
 
 - **Stationary bootstrap** (random block lengths) and data-driven block-length selection.
-- **A side-by-side "Compare methods" table** of IID and block results for the same run (planned in the block design, [§9](BLOCK_BOOTSTRAP_DESIGN.md#9-user-interface)); not yet built.
+- **A side-by-side table of IID and block figures** for the same run (first sketched in the block design, [§9](BLOCK_BOOTSTRAP_DESIGN.md#9-user-interface)); not built. The page compares the methods themselves (below the selector), not their results.
 - **Confidence intervals** for figures such as the boundary frequency. Any such interval must state exactly what it estimates.
 - **Charts.** The results are presented as tables only, for now.
 - **Background jobs** for larger analyses.

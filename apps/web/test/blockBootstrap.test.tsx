@@ -778,3 +778,117 @@ describe('G. Accessibility', () => {
     expect(screen.getByLabelText(/^Seed/).id).toBe('block-seed');
   });
 });
+
+describe('H. Method comparison table', () => {
+  const comparison = () =>
+    screen.findByRole('table', { name: 'IID and moving-block bootstrap compared' });
+  /** The cell for an aspect (row header) under a method's column, by header association. */
+  function cell(table: HTMLElement, aspect: string, column: 1 | 2) {
+    const row = within(table).getByRole('rowheader', { name: aspect }).closest('tr')!;
+    return within(row).getAllByRole('cell')[column - 1]!.textContent!;
+  }
+
+  it('describes each method in its own column, without reversing them', async () => {
+    const run = makeRun(7);
+    stub({
+      'GET /api/simulations/7': () => json(run),
+      'GET /api/simulations/7/analyses': () => json(iidList),
+    });
+    renderAt('/simulations/7/uncertainty');
+    const table = await comparison();
+    const headers = within(table)
+      .getAllByRole('columnheader')
+      .map((h) => h.textContent);
+    expect(headers).toEqual([
+      'Aspect',
+      'Independent rounds (IID bootstrap)(selected)',
+      'Blocks of consecutive rounds (moving-block bootstrap)',
+    ]);
+    expect(
+      within(table)
+        .getAllByRole('rowheader')
+        .map((h) => h.textContent),
+    ).toEqual([
+      'Sampling unit',
+      'Recorded order',
+      'Main purpose',
+      'Settings required',
+      'Losing streaks',
+      'Assumptions and limitations',
+    ]);
+    // IID column (1) and block column (2).
+    expect(cell(table, 'Sampling unit', 1)).toMatch(/^One recorded round at a time/);
+    expect(cell(table, 'Sampling unit', 2)).toMatch(/^A block of b consecutive recorded rounds/);
+    expect(cell(table, 'Recorded order', 1)).toMatch(/^Not kept/);
+    expect(cell(table, 'Recorded order', 2)).toMatch(/^Kept within each block/);
+    expect(cell(table, 'Settings required', 1)).toBe('Paths and seed.');
+    expect(cell(table, 'Settings required', 1)).not.toMatch(/block/i);
+    expect(cell(table, 'Settings required', 2)).toMatch(
+      /block length b: a whole number from 2 to ⌊n \/ 10⌋ \(at most 500\).*at least 20 rounds/,
+    );
+    expect(cell(table, 'Losing streaks', 1)).toBe('Not reported.');
+    expect(cell(table, 'Losing streaks', 2)).toMatch(
+      /^Reported in rounds: for each generated block-resampled path.*negative combined net outcome across both legs \(a break-even round ends the run\)/,
+    );
+    expect(cell(table, 'Assumptions and limitations', 1)).toMatch(
+      /independent and identically distributed/,
+    );
+    expect(cell(table, 'Assumptions and limitations', 2)).toMatch(
+      /depend on the chosen block length and on this one sample/,
+    );
+  });
+
+  it('states repetition, overlap and no wrap-around, and makes no predictive claim', async () => {
+    const run = makeRun(7);
+    stub({
+      'GET /api/simulations/7': () => json(run),
+      'GET /api/simulations/7/block-analyses': () => json(blockList([], 60)),
+    });
+    renderAt('/simulations/7/uncertainty?method=moving-block');
+    const table = await comparison();
+    const notes = document.getElementById(table.getAttribute('aria-describedby')!)!.textContent!;
+    expect(notes).toMatch(/can appear more than once on a path/);
+    expect(notes).toMatch(/sampled blocks may overlap/);
+    expect(notes).toMatch(/never wraps from the end of the sample/);
+    expect(notes).toMatch(/Neither method predicts future multipliers, establishes an edge/);
+    expect(notes).toMatch(/does not show that rounds depend on each other/);
+    expect(notes).toMatch(/not real-world probabilities/);
+    const panel = screen.getByRole('region', { name: 'How the two methods differ' }).textContent!;
+    // No affirmative predictive or ranking language anywhere in the comparison.
+    for (const claim of [
+      /\bwill (?:win|profit|predict)/i,
+      /\bbetter\b/i,
+      /\bmore accurate\b/i,
+      /\bproves?\b/i,
+      /\bguarantee[sd]?\b/i,
+      /\brecommended\b/i,
+    ]) {
+      expect(panel).not.toMatch(claim);
+    }
+    // The selected marker follows the method, as text rather than colour alone.
+    expect(within(table).getByRole('columnheader', { name: /moving-block/ }).textContent).toMatch(
+      /\(selected\)$/,
+    );
+    expect(within(table).getByRole('columnheader', { name: /IID/ }).textContent).not.toMatch(
+      /selected/,
+    );
+  });
+
+  it('sits with the method selector and leaves IID behaviour intact', async () => {
+    const run = makeRun(7);
+    const calls = stub({
+      'GET /api/simulations/7': () => json(run),
+      'GET /api/simulations/7/analyses': () => json(iidList),
+    });
+    renderAt('/simulations/7/uncertainty');
+    const group = await screen.findByRole('group', { name: 'Resampling method' });
+    const table = await comparison();
+    // The comparison follows the selector and precedes the method's own panels.
+    expect(group.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const form = await screen.findByRole('form', { name: 'Uncertainty analysis settings' });
+    expect(table.compareDocumentPosition(form) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(table.closest('.overflow-x-auto')).not.toBeNull();
+    expect(screen.getByText('No analysis yet')).toBeTruthy();
+    expect(requestsTo(calls, 'block-analyses')).toHaveLength(0);
+  });
+});

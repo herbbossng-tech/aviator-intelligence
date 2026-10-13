@@ -627,6 +627,55 @@ describe('stored-data integrity', () => {
           })(),
         }),
       ],
+      [
+        "sample size differs from the run's sample (internally consistent)",
+        prog.id,
+        copy({
+          sample_size: 70,
+          summary_json: summaryWith(a.id, (s) => {
+            (s.sample as { size: number }).size = 70;
+            s.pathLength = 70;
+            // 70 rounds with b = 4: K = 18, L = 2, S = 67.
+            s.resampling = {
+              ...(s.resampling as object),
+              blocksPerPath: 18,
+              lastBlockLength: 2,
+              candidateStarts: 67,
+            };
+          }),
+        }),
+      ],
+      [
+        "observed snapshot differs from the run's summary",
+        prog.id,
+        copy({
+          summary_json: summaryWith(a.id, (s) => {
+            (s.observed as { endingBankrollMinor: number }).endingBankrollMinor += 1;
+          }),
+        }),
+      ],
+      [
+        'boundary reported for a stop the run did not configure',
+        prog.id,
+        copy({
+          summary_json: summaryWith(a.id, (s) => {
+            (s.configuredBoundaries as Record<string, unknown>).lowerBankrollStop = {
+              thresholdMinor: 1,
+              count: 999,
+              denominator: 10,
+            };
+          }),
+        }),
+      ],
+      [
+        'quantile levels missing',
+        prog.id,
+        copy({
+          summary_json: summaryWith(a.id, (s) => {
+            (s.endingBankrollMinor as { quantiles: unknown[] }).quantiles = [];
+          }),
+        }),
+      ],
       // The fingerprint trigger cannot tell runs on the same data apart; the read check does.
       [
         'progression analysis attached to a flat run',
@@ -647,6 +696,31 @@ describe('stored-data integrity', () => {
     expect(
       (await fetch(`${server.baseUrl}/api/simulations/${prog.id}/block-analyses`)).status,
     ).toBe(500);
+  });
+
+  it('reads back a genuine analysis of a run with both stops configured', async () => {
+    seedSeries(db, MULTIPLIERS);
+    const base = request();
+    const body = {
+      ...base,
+      settings: {
+        ...base.settings,
+        risk: { ...base.settings.risk, stopBelowBankrollMinor: 400_000, maxDrawdownBps: 2_000 },
+      },
+    };
+    const run = await createRun(body);
+    const a = await blockAnalyse(run.id, { paths: 40, seed: 3, blockLength: 4 });
+    const b = a.summary.configuredBoundaries;
+    expect(b.lowerBankrollStop).toEqual({
+      thresholdMinor: 400_000,
+      count: a.summary.stopReasons.stop_below,
+      denominator: 40,
+    });
+    expect(b.maxDrawdownStop?.thresholdBps).toBe(2_000);
+    expect(b.lowerBankrollStop!.count + b.maxDrawdownStop!.count).toBeGreaterThan(0);
+    const res = await fetch(`${server.baseUrl}/api/simulations/${run.id}/block-analyses/${a.id}`);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(a);
   });
 
   it('stores nothing when storing fails, without leaking internals', async () => {

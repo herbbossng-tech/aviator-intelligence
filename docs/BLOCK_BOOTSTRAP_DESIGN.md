@@ -233,7 +233,8 @@ Each stored block analysis is checked against its run on every read, like IID an
 - **Columns against the summary.** The seed, paths, sample size, block length and algorithm version must agree with the summary.
 - **Resampling metadata.** It must be internally consistent: K = ⌈n/b⌉, L = n − (K − 1)b, S = n − b + 1, and 2 ≤ b ≤ ⌊n/10⌋.
 - **Staking metadata.** It must identify exactly the run's progressions, and be absent for a flat run. Per-leg counts must not exceed P.
-- **Distributions.** Each must be ordered (min ≤ p05 ≤ … ≤ p95 ≤ max).
+- **Distributions.** Each must be ordered (min ≤ p05 ≤ … ≤ p95 ≤ max) at exactly the standard levels.
+- **Run's own figures.** The sample size, the observed snapshot and the configured boundaries must match the run (see [§8.5](#85-step-3-implementation)).
 - **Counts.** Stop-reason counts and net-outcome counts must each sum to P.
 
 **IID unaffected.** Old IID analyses, and new ones, keep being read by the existing code path, unchanged.
@@ -320,9 +321,14 @@ Any failure stores nothing:
 - the summary against `blockBootstrapSummarySchema`;
 - the seed, paths, sample size, block length and version columns against the summary;
 - the layout (K, L, S) against `movingBlockLayout(sample_size, block_length)`;
-- that every distribution is ordered;
+- that the sample size equals the run's eligible sample (`roundsEligible`, fixed by the fingerprint);
+- that every distribution is ordered, at exactly the standard quantile levels (p05, p25, p50, p75, p95);
 - that the stop-reason, net-outcome and observed counts each sum to P;
+- that the observed snapshot equals the run's own summary (ending bankroll, net, drawdowns, rounds replayed, stop reason);
+- that each configured boundary is reported exactly when the run configured that stop, with the run's threshold, the matching stop-reason count and denominator P;
 - that the staking metadata names exactly the run's progressions.
+
+The sample-size, observed-snapshot, boundary and quantile-level checks were added in the step 5 review. These are rows the service can never write. Before the change, a hand-edited row of that kind would have read back as valid. The IID repository is unchanged.
 
 A row that fails is reported as 500 `stored_data_invalid`, with details `{ simulationRunId, blockAnalysisId }`. The row is never repaired, skipped or recomputed, and the cause is logged on the server only.
 
@@ -358,7 +364,8 @@ Implemented locally on `feat/moving-block-bootstrap`; not pushed. The user-facin
 - **b beside each progression leg's step limit** appears in the results and, when b is shorter, in the form's live line ([§5.5](#55-block-length)).
 - **Departures from §9, for the owner to review:**
   - Lists are kept per method (an IID list under the IID method and a block list under the block method) rather than one combined list labelled by method. The step 4 brief required that IID and block lists never be merged ambiguously; separate lists, each titled with its method, satisfy that most simply.
-  - The "Compare methods" table is **not built**. The step 4 brief did not list it, so it is left for an explicit decision rather than added on this step's authority. Until then the two methods' results are viewed one at a time.
+  - **Method comparison (added after step 4, on the owner's authorisation).** The owner defined the comparison as a description of the two methods, not of their figures. `MethodComparison.tsx` renders a "How the two methods differ" table directly under the method selector, on both methods' views. Its rows are: sampling unit, recorded order, main purpose, settings required, losing streaks, and assumptions and limitations. Notes below the table state that rounds can repeat, blocks may overlap and blocks never wrap, and that neither method predicts, ranks configurations or shows dependence. It declares no winner.
+  - A side-by-side table of the two methods' **figures** for the same run, as first sketched above, is not built. The two methods' results are viewed one at a time, each fully labelled.
 
 ## 10. Validation strategy
 
@@ -417,7 +424,7 @@ Each increment ends with green repository checks (`format:check`, `lint`, `typec
 | 1   | Sampling primitives                                  | `packages/shared`: block-length rules and default, domain-separated generator, `fillMovingBlockPath`, constants and errors                                                                                                                                                                                                                                                                     | Tests 1–6 and 11 pass; IID frozen outputs unchanged; no server or UI change                                  |
 | 2   | Block bootstrap engine                               | `packages/shared`: `runBlockBootstrap`, streak distribution, resampling metadata, warnings, summary schema. Implemented without refactoring the IID aggregation (the owner ruled out IID refactoring). `blockBootstrapAnalysis.ts` has its own aggregation, built from the IID module's exported quantile rule, limits, setting schema and summary sub-schemas, so `bootstrap.ts` is unchanged | Tests 7–10 pass; IID results byte-identical (frozen tests); progression semantics as in §6                   |
 | 3   | Persistence and API (implemented locally, see §8.5)  | Migration 007, repository with read-time validation, service with limit checks, routes and error codes                                                                                                                                                                                                                                                                                         | Tests 12–15 pass; existing rows untouched; old databases migrate; ordinary invalid input never gives 500     |
-| 4   | UI and documentation (implemented locally, see §9.1) | Method choice, block length, K and L, method text, comparison table (deferred, see §9.1), results labels; UNCERTAINTY.md section; tracker                                                                                                                                                                                                                                                      | Test 16 passes; copy reviewed against §3 and §9; no claim of prediction or edge                              |
+| 4   | UI and documentation (implemented locally, see §9.1) | Method choice, block length, K and L, method text, method comparison table (see §9.1), results labels; UNCERTAINTY.md section; tracker                                                                                                                                                                                                                                                         | Test 16 passes; copy reviewed against §3 and §9; no claim of prediction or edge                              |
 | 5   | Final review and PR                                  | Full diff review, repeated test runs, draft PR                                                                                                                                                                                                                                                                                                                                                 | All checks green locally and in CI; PR opened as a draft for the owner; nothing merged without authorisation |
 
 ## 14. Decisions for the owner
