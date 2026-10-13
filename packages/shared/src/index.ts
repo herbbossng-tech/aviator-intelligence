@@ -9,3 +9,4 @@ export * from './analytics.js';
 export * from './backtest.js';
 export * from './bootstrap.js';
 export * from './robustness.js';
+export * from './progression.js';
