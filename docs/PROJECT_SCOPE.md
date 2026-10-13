@@ -146,20 +146,24 @@ Aviator Intelligence is a local-first research and simulation dashboard for the 
   - Configuration snapshots include the plan, and stored analyses are checked against their run on every read.
   - No migration was needed, and flat-stake results are unchanged.
   - See [UNCERTAINTY.md](UNCERTAINTY.md#runs-with-a-staking-progression) and [ROBUSTNESS.md](ROBUSTNESS.md#runs-with-a-staking-progression).
-- **Increment 4 — order-preserving block bootstrap:** design and planning in progress. See [BLOCK_BOOTSTRAP_DESIGN.md](BLOCK_BOOTSTRAP_DESIGN.md) (proposed: a non-circular moving-block bootstrap for the uncertainty analysis, beside the unchanged IID bootstrap). Nothing is implemented.
+- **Increment 4 — order-preserving block bootstrap:** a non-circular moving-block bootstrap for the uncertainty analysis, beside the unchanged IID bootstrap. See [BLOCK_BOOTSTRAP_DESIGN.md](BLOCK_BOOTSTRAP_DESIGN.md).
+  - The design is complete and approved.
+  - Step 1 (sampling primitives in `packages/shared/src/blockBootstrap.ts`, with deterministic tests) is implemented locally on `feat/moving-block-bootstrap`. It is not pushed, merged or verified on `main`.
+  - The analysis engine, storage, API and UI (steps 2–5) are not started.
 - A progression changes stake sizes only. It does not predict rounds, create an edge or guarantee recovery or profit; all amounts are virtual.
 
 ### Progression tracker
 
-| Increment                           | Implemented | Tested | Merged                  | Verified on `main`           |
-| ----------------------------------- | ----------- | ------ | ----------------------- | ---------------------------- |
-| 1 — progression engine              | Yes         | Yes    | Yes (PR #8, `79e7873`)  | Yes (CI passed on `79e7873`) |
-| 2 — progressions in backtests       | Yes         | Yes    | Yes (PR #9, `82d0644`)  | Yes (CI passed on `82d0644`) |
-| 3 — progression-aware analyses      | Yes         | Yes    | Yes (PR #10, `d8f5d4c`) | Yes (CI passed on `d8f5d4c`) |
-| 4 — block bootstrap: design         | In progress | —      | Not started             | —                            |
-| 4 — block bootstrap: implementation | Not started | No     | Not started             | No                           |
+| Increment                                          | Implemented         | Tested      | Merged                    | Verified on `main`           |
+| -------------------------------------------------- | ------------------- | ----------- | ------------------------- | ---------------------------- |
+| 1 — progression engine                             | Yes                 | Yes         | Yes (PR #8, `79e7873`)    | Yes (CI passed on `79e7873`) |
+| 2 — progressions in backtests                      | Yes                 | Yes         | Yes (PR #9, `82d0644`)    | Yes (CI passed on `82d0644`) |
+| 3 — progression-aware analyses                     | Yes                 | Yes         | Yes (PR #10, `d8f5d4c`)   | Yes (CI passed on `d8f5d4c`) |
+| 4 — block bootstrap: design                        | Complete (approved) | —           | Not merged (local commit) | No                           |
+| 4 — step 1: sampling primitives                    | Yes (local only)    | Yes (local) | No (no PR opened)         | No                           |
+| 4 — steps 2–5: engine, storage and API, UI, review | Not started         | No          | No                        | No                           |
 
-Next required approval: the owner's decisions in [BLOCK_BOOTSTRAP_DESIGN.md §14](BLOCK_BOOTSTRAP_DESIGN.md#14-decisions-for-the-owner) and authorisation to begin implementation.
+Next required approval: the owner's review of the local step 1 implementation, and authorisation to begin step 2.
 
 ## Planned for later phases
 

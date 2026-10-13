@@ -1,8 +1,8 @@
 # Design: order-preserving block bootstrap (progression increment 4)
 
-> **Status: design only. Nothing in this document is implemented yet.**
+> **Status: design approved by the owner; implementation in progress.** Only step 1 (the sampling primitives, [§13](#13-implementation-sequence)) exists, locally and unmerged. The analysis itself, its storage, API and UI do not exist yet.
 >
-> It proposes how to add a second resampling method to the uncertainty analysis. The existing IID bootstrap ([UNCERTAINTY.md](UNCERTAINTY.md)) and the chronological robustness analysis ([ROBUSTNESS.md](ROBUSTNESS.md)) are unchanged by this design and remain supported. Implementation starts only after the owner approves this design and the open decisions in [§14](#14-decisions-for-the-owner).
+> It proposes how to add a second resampling method to the uncertainty analysis. The existing IID bootstrap ([UNCERTAINTY.md](UNCERTAINTY.md)) and the chronological robustness analysis ([ROBUSTNESS.md](ROBUSTNESS.md)) are unchanged by this design and remain supported. The owner's decisions on [§14](#14-decisions-for-the-owner) are recorded there.
 
 > **What this analysis would be, and what it would not be.**
 >
@@ -112,6 +112,16 @@ Notation: n = sample size, b = block length, S = n − b + 1 candidate starts, K
 - **Draw order.** Path p draws its K starts in order, each with `nextIndex(S)`. No other draws are made. As with IID, a path's draws do not depend on other paths or on when earlier paths stopped.
 - **Determinism.** The same sample (fingerprint), configuration (strategy, settings, staking plan), seed, paths, block length and algorithm version give identical results.
 - **Algorithm version.** `moving-block-bootstrap/xoshiro128ss-fmix32/v1`. Any change to these rules requires a new version, as for IID.
+- **Step 1 implementation.** The rules above are implemented in `packages/shared/src/blockBootstrap.ts`:
+  - `blockPathGenerator(seed, path)`: the domain-separated generator;
+  - `movingBlockLayout(n, b)`: S, K and L;
+  - `drawBlockStarts(layout, rng)`: draws the K starts;
+  - `blockPathIndices(layout, starts)`: a path's sample positions;
+  - `movingBlockPath(n, b, seed, path)`: all of the above in one call;
+  - `gatherBlockPath(sample, indices)`: the sample values at a path's positions;
+  - `MOVING_BLOCK_ALGORITHM_VERSION`.
+
+  Invalid samples and block lengths throw `BlockBootstrapError`, a `RangeError` like the IID `AnalysisLimitError`, before anything is drawn. The IID module is not changed.
 
 ### 5.4 Known edge effect
 
@@ -128,7 +138,10 @@ The design accepts this, documents it, and tests the exact coverage formula ([§
   - b ≤ n / 10 guarantees at least 10 blocks per path, so every path mixes at least 10 recorded stretches. That avoids near-copies of the historical sequence.
   - The absolute cap keeps "short-range" meaningful and bounds the coverage edge effect.
 - **Minimum sample.** It follows that block bootstrap needs n ≥ 20.
-- **Default.** b = clamp(round(n^(1/3)), 2, min(⌊n/10⌋, 500)). The n^(1/3) rule is the common order for block-length selection when estimating distribution quantities (Hall, Horowitz & Jing 1995). It gives about 5 for n = 100, 22 for n = 10,000 and 46 for n = 100,000.
+- **Default.** b = clamp(round(n^(1/3)), 2, min(⌊n/10⌋, 500)).
+  - "round" is **half up**, computed exactly with integers: the k with (2k − 1)³ ≤ 8n < (2k + 1)³ (`roundedCubeRoot`). No floating-point cube root decides the result.
+  - For n = 20 … 29 the cube root rounds to 3 but the maximum is 2, so the default is 2.
+  - The default is valid for every n from 20 to 100,000; a test checks every one. The n^(1/3) rule is the common order for block-length selection when estimating distribution quantities (Hall, Horowitz & Jing 1995). It gives about 5 for n = 100, 22 for n = 10,000 and 46 for n = 100,000.
   - The default is a convention, not an optimal choice for this data, and the UI says so.
   - Data-driven selection (for example Politis & White 2004) is a non-goal.
 - **Interpretation for progressions.** A block length shorter than the progression's step limit means losing streaks long enough to reach the limit can only form across block joins. The UI shows the chosen b next to each leg's step limit, so the user can judge this. No adjustment is made automatically.
@@ -305,6 +318,16 @@ Each increment ends with green repository checks (`format:check`, `lint`, `typec
 | 5   | Final review and PR    | Full diff review, repeated test runs, draft PR                                                                                                                                                          | All checks green locally and in CI; PR opened as a draft for the owner; nothing merged without authorisation |
 
 ## 14. Decisions for the owner
+
+**Owner decisions (recorded for step 1):**
+
+- Moving blocks only (decision 5).
+- Blocks may span recording gaps, and the limitation is documented (decision 1).
+- A separate `/block-analyses` endpoint (decision 2).
+- The block-length rules and default of §5.5, with a 20-round minimum (decision 3).
+- IID results unchanged, with no IID streaks in this increment (decision 4).
+
+The original options follow.
 
 1. **Recording gaps.** Should blocks be allowed to span gaps in the recorded sequence?
    - **Recommended:** yes for v1, documented as above. Detecting gaps would need a cadence definition the data does not provide.
