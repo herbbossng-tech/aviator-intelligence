@@ -286,6 +286,33 @@ describe('progression-aware chronological robustness', () => {
     expect(full.rounds[30]!.legs[0]!.progression!.step).toBeGreaterThan(0);
   });
 
+  it('accepts every genuine progression result (no false rejections), across seeded cases', () => {
+    for (let seed = 1; seed <= 40; seed++) {
+      const ms = pseudoMultipliers(90 + (seed % 4) * 30, seed);
+      const r = rounds(ms);
+      const p = plan(
+        seed % 3 === 0
+          ? null
+          : martingale(150 + (seed % 5) * 50, 1 + (seed % 6), 5_000 + seed * 500),
+        seed % 2 === 0 ? custom([1_000, 2_000, 5_000].slice(0, 1 + (seed % 3))) : null,
+      );
+      const st = settings(3_000 + seed * 700, seed % 4 === 0 ? { maxRounds: 50 } : {});
+      const windows = 2 + (seed % 2);
+      const result = runBlockRobustness(r, STRATEGY, st, { windows }, p);
+      expect(() =>
+        verifyBlockRobustnessResult(JSON.parse(JSON.stringify(result)), {
+          windows,
+          sampleSize: ms.length,
+          strategy: STRATEGY,
+          settings: st,
+          staking: p,
+          observedSummary: runBacktest(r, STRATEGY, st, p).summary,
+          rounds: r,
+        }),
+      ).not.toThrow();
+    }
+  });
+
   it('leaves flat-stake results exactly as before', () => {
     const flat = runBlockRobustness(sample, STRATEGY, s, { windows: 3 });
     expect(runBlockRobustness(sample, STRATEGY, s, { windows: 3 }, null)).toEqual(flat);
@@ -325,6 +352,77 @@ describe('progression-aware chronological robustness', () => {
     expect(() => verifyBlockRobustnessResult(tampered, { ...base, staking })).toThrow(
       /progression skips do not add up/,
     );
+    // Internally contradictory progression summaries (statuses, reasons, stop rounds).
+    const blocked = result.blocks.findIndex(
+      (b) => b.summary.progression!.legs.A!.finalStatus === 'blocked',
+    );
+    const active = result.blocks.findIndex(
+      (b) => b.summary.progression!.legs.A!.finalStatus === 'active',
+    );
+    expect(blocked).toBeGreaterThanOrEqual(0); // the fixture stops leg A in some block
+    expect(result.blocks[blocked]!.summary.progression!.legs.A!.skippedInactive).toBeGreaterThan(0);
+    expect(active).toBeGreaterThanOrEqual(0);
+    const contradictions: [string, (r: typeof result) => void, RegExp][] = [
+      [
+        'reported active after being stopped',
+        (r) => {
+          const p = r.blocks[blocked]!.summary.progression!.legs.A!;
+          p.finalStatus = 'active';
+          p.finalBlockReason = null;
+        },
+        /an active leg has skips after a stop/,
+      ],
+      [
+        'a block reason on an active leg',
+        (r) => {
+          r.blocks[active]!.summary.progression!.legs.A!.finalBlockReason = 'max_steps_reached';
+        },
+        /final status and block reason disagree/,
+      ],
+      [
+        'an exhausted status on a Martingale',
+        (r) => {
+          r.blocks[blocked]!.summary.progression!.legs.A!.finalStatus = 'exhausted';
+        },
+        /final status and block reason disagree/,
+      ],
+      [
+        'a stop round without skips after it',
+        (r) => {
+          r.blocks[active]!.summary.progression!.legs.A!.inactiveFromSequenceNo = 3;
+        },
+        /stopped from and its skips after a stop disagree/,
+      ],
+      [
+        'a stop round beyond the replay',
+        (r) => {
+          const p = r.blocks[blocked]!.summary.progression!.legs.A!;
+          p.inactiveFromSequenceNo = r.blocks[blocked]!.summary.roundsReplayed;
+        },
+        /stopped from a round that was not replayed/,
+      ],
+      [
+        'no highest step despite placed stakes',
+        (r) => {
+          r.blocks[active]!.summary.progression!.legs.A!.maxStepPlaced = null;
+        },
+        /highest step placed disagrees/,
+      ],
+      [
+        'more stake-free rounds than rounds',
+        (r) => {
+          r.blocks[active]!.summary.progression!.roundsWithoutStake =
+            r.blocks[active]!.summary.roundsReplayed + 1;
+        },
+        /more rounds without a stake than rounds replayed/,
+      ],
+    ];
+    for (const [label, tamper, message] of contradictions) {
+      const copy = json();
+      tamper(copy);
+      expect(() => verifyBlockRobustnessResult(copy, { ...base, staking }), label).toThrow(message);
+    }
+
     // A flat result checked against a progression plan.
     const flat = runBlockRobustness(sample, STRATEGY, s, { windows: 3 });
     expect(() => verifyBlockRobustnessResult(flat, { ...base, staking })).toThrow(

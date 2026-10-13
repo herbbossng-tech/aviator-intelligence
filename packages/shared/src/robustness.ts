@@ -465,6 +465,29 @@ function checkSummary(
       fail(`leg ${key}: progression skips do not add up to the leg's skips`);
     }
     if (p.cyclesCompleted !== leg.wins) fail(`leg ${key}: completed cycles != wins`);
+    // Internal consistency: a final status, its reason and the skips after a stop agree.
+    const reasonMatchesStatus =
+      p.finalStatus === 'active'
+        ? p.finalBlockReason === null
+        : p.finalStatus === 'exhausted'
+          ? p.finalBlockReason === 'sequence_exhausted'
+          : p.finalBlockReason !== null && p.finalBlockReason !== 'sequence_exhausted';
+    if (!reasonMatchesStatus) fail(`leg ${key}: final status and block reason disagree`);
+    if ((p.inactiveFromSequenceNo === null) !== (p.skippedInactive === 0)) {
+      fail(`leg ${key}: the round it stopped from and its skips after a stop disagree`);
+    }
+    if (p.skippedInactive > 0 && p.finalStatus === 'active') {
+      fail(`leg ${key}: an active leg has skips after a stop`);
+    }
+    if (p.inactiveFromSequenceNo !== null && p.inactiveFromSequenceNo >= s.roundsReplayed) {
+      fail(`leg ${key}: stopped from a round that was not replayed`);
+    }
+    if ((p.maxStepPlaced === null) !== (leg.placed === 0)) {
+      fail(`leg ${key}: highest step placed disagrees with the stakes placed`);
+    }
+  }
+  if (s.progression.roundsWithoutStake > s.roundsReplayed) {
+    fail('more rounds without a stake than rounds replayed');
   }
 }
 
