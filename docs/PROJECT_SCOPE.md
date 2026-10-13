@@ -146,7 +146,20 @@ Aviator Intelligence is a local-first research and simulation dashboard for the 
   - Configuration snapshots include the plan, and stored analyses are checked against their run on every read.
   - No migration was needed, and flat-stake results are unchanged.
   - See [UNCERTAINTY.md](UNCERTAINTY.md#runs-with-a-staking-progression) and [ROBUSTNESS.md](ROBUSTNESS.md#runs-with-a-staking-progression).
+- **Increment 4 — order-preserving block bootstrap:** design and planning in progress. See [BLOCK_BOOTSTRAP_DESIGN.md](BLOCK_BOOTSTRAP_DESIGN.md) (proposed: a non-circular moving-block bootstrap for the uncertainty analysis, beside the unchanged IID bootstrap). Nothing is implemented.
 - A progression changes stake sizes only. It does not predict rounds, create an edge or guarantee recovery or profit; all amounts are virtual.
+
+### Progression tracker
+
+| Increment                           | Implemented | Tested | Merged                  | Verified on `main`           |
+| ----------------------------------- | ----------- | ------ | ----------------------- | ---------------------------- |
+| 1 — progression engine              | Yes         | Yes    | Yes (PR #8, `79e7873`)  | Yes (CI passed on `79e7873`) |
+| 2 — progressions in backtests       | Yes         | Yes    | Yes (PR #9, `82d0644`)  | Yes (CI passed on `82d0644`) |
+| 3 — progression-aware analyses      | Yes         | Yes    | Yes (PR #10, `d8f5d4c`) | Yes (CI passed on `d8f5d4c`) |
+| 4 — block bootstrap: design         | In progress | —      | Not started             | —                            |
+| 4 — block bootstrap: implementation | Not started | No     | Not started             | No                           |
+
+Next required approval: the owner's decisions in [BLOCK_BOOTSTRAP_DESIGN.md §14](BLOCK_BOOTSTRAP_DESIGN.md#14-decisions-for-the-owner) and authorisation to begin implementation.
 
 ## Planned for later phases
 
@@ -156,7 +169,7 @@ Each phase needs separate approval.
 - **Analysis:** rolling-window summaries, once a trustworthy within-source ordering is defined; per-source comparisons.
 - **Strategy lab:** save and name two-leg strategies for reuse.
 - **Simulation uncertainty, beyond pass 5:**
-  - an order-preserving (block) bootstrap with a justified block length
+  - an order-preserving (block) bootstrap with a justified block length (being designed as progression increment 4; see [BLOCK_BOOTSTRAP_DESIGN.md](BLOCK_BOOTSTRAP_DESIGN.md))
   - interval estimates for model frequencies, with stated assumptions
 - **Testing:** Playwright end-to-end tests of the dashboard itself.
 - **Operations:** a combined production server for the built dashboard; backup/export tooling; an optional PostgreSQL migration path. The data access is already isolated in repository modules.
