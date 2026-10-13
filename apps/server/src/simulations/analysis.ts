@@ -53,15 +53,6 @@ export function runAndStoreAnalysis(
       'Only a completed run can be analysed; this run failed and has no results.',
     );
   }
-  if (run.staking !== null) {
-    // The resampling and block replays apply flat stakes only; analysing a progression run
-    // with them would silently describe a different strategy.
-    throw new HttpError(
-      409,
-      'run_not_analyzable',
-      'Runs that use a staking progression cannot be analysed yet; only flat-stake runs can.',
-    );
-  }
   // Refuse oversized requests from the run's recorded sample size before reading anything.
   const recordedSize = run.dataset?.roundsEligible ?? 0;
   if (recordedSize > 0 && settings.paths > maxPathsForSample(recordedSize)) {
@@ -95,6 +86,7 @@ export function runAndStoreAnalysis(
       run.settings,
       settings,
       run.summary,
+      run.staking,
     );
   } catch (error) {
     if (error instanceof BacktestLimitError) {
@@ -120,7 +112,7 @@ export function runAndStoreAnalysis(
     log('Storing the uncertainty analysis failed', error);
     throw new HttpError(500, 'analysis_failed', FAILED_ANALYSIS_MESSAGE);
   }
-  const stored = getAnalysis(db, run.id, id);
+  const stored = getAnalysis(db, run, id);
   if (!stored) throw new Error('analysis missing after insert');
   return stored;
 }

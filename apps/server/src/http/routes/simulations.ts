@@ -101,8 +101,8 @@ export function simulationsRouter(
     const run = findRun(req.params.id);
     const sampleSize = run.status === 'completed' ? (run.dataset?.roundsEligible ?? null) : null;
     res.json({
-      ...listAnalyses(db, run.id, query),
-      maxPaths: sampleSize === null || run.staking !== null ? 0 : maxPathsForSample(sampleSize),
+      ...listAnalyses(db, run, query),
+      maxPaths: sampleSize === null ? 0 : maxPathsForSample(sampleSize),
       sampleSize,
     });
   });
@@ -110,7 +110,7 @@ export function simulationsRouter(
   router.get('/simulations/:id/analyses/:analysisId', (req, res) => {
     const run = findRun(req.params.id);
     const parsed = runIdSchema.safeParse(req.params.analysisId);
-    const analysis = parsed.success ? getAnalysis(db, run.id, parsed.data) : null;
+    const analysis = parsed.success ? getAnalysis(db, run, parsed.data) : null;
     if (!analysis) throw new HttpError(404, 'analysis_not_found', 'No such analysis for this run.');
     res.json(analysis);
   });
@@ -131,7 +131,7 @@ export function simulationsRouter(
       ...listRobustnessAnalyses(db, run, query),
       limit: query.limit,
       offset: query.offset,
-      maxWindows: sampleSize === null || run.staking !== null ? 0 : maxWindowsForSample(sampleSize),
+      maxWindows: sampleSize === null ? 0 : maxWindowsForSample(sampleSize),
       sampleSize,
     });
   });
