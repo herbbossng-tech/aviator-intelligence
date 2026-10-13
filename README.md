@@ -26,6 +26,7 @@ Foundation pass 1, **pass 2 (historical round data manager)**, **pass 3 (histori
 | Virtual backtests: two-leg engine, dataset ordering checks, persistent ledger, run comparison                             | Done (pass 4)                                                                                    |
 | Historical analytics: summary, nearest-rank quantiles, P(M ≥ t) with 95% Wilson intervals, histogram, data-quality report | Done (pass 3)                                                                                    |
 | Uncertainty analysis of backtests: seeded IID bootstrap, quantiles, configured-boundary frequency                         | Done (pass 5)                                                                                    |
+| Chronological robustness analysis of backtests: independent replays of consecutive periods, stored and verified           | Done (pass 6)                                                                                    |
 | Playwright browser tests of the dashboard                                                                                 | Planned                                                                                          |
 | Live observation                                                                                                          | Out of scope until reviewed ([docs/LIVE_OBSERVATION_REVIEW.md](docs/LIVE_OBSERVATION_REVIEW.md)) |
 | Real-money execution / betting automation                                                                                 | Excluded                                                                                         |
@@ -73,6 +74,8 @@ Backtests use virtual money only and do not predict future rounds. The method is
 - how often paths hit the run's configured stops under the model
 
 These are model-conditional sensitivity figures, not predictions, not real-world probabilities of loss, and not evidence of profit. See **[docs/UNCERTAINTY.md](docs/UNCERTAINTY.md)**.
+
+**Robustness analysis** (from a completed run, or `/api/simulations/:id/robustness`) splits the run's eligible rounds into 2–10 consecutive periods and replays the same configuration on each period separately, starting again from the configured bankroll. Every result is computed and verified by the server and stored with its dataset fingerprint and versions. The periods are in-sample history: not out-of-sample validation, not predictions, and not evidence of profit. See **[docs/ROBUSTNESS.md](docs/ROBUSTNESS.md)**.
 
 The full contract covers formats, limits, error codes and duplicate rules: **[docs/DATA_IMPORT.md](docs/DATA_IMPORT.md)**. Synthetic example files are in [docs/examples/](docs/examples/).
 

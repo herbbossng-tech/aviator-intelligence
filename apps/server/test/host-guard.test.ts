@@ -96,6 +96,17 @@ describe('loopback Host guard', () => {
       seed: 1,
     });
     expect(analyse.status).toBe(403);
+    const robustness = await send(port, hostHeader, 'POST', '/api/simulations/1/robustness', {
+      windows: 2,
+    });
+    expect(robustness.status).toBe(403);
+    const removeRobustness = await send(
+      port,
+      hostHeader,
+      'DELETE',
+      '/api/simulations/1/robustness/1',
+    );
+    expect(removeRobustness.status).toBe(403);
     expect((db.prepare('SELECT COUNT(*) AS n FROM simulation_runs').get() as { n: number }).n).toBe(
       0,
     );

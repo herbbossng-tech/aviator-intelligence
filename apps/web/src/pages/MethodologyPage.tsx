@@ -44,6 +44,11 @@ export function MethodologyPage() {
               conditional on that model and are not probabilities of real-world loss.
             </li>
             <li>
+              Robustness analyses replay separate chronological periods of a run&apos;s own data,
+              each from the starting bankroll. They are in-sample history, not out-of-sample
+              validation, and block results are not added together.
+            </li>
+            <li>
               Backtest results report drawdown, lowest bankroll, losing streaks and every
               denominator, not totals alone. Risk of ruin is not estimated from a single replay.
             </li>

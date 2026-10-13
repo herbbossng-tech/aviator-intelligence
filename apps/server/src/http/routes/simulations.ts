@@ -7,6 +7,9 @@ import {
   ledgerQuerySchema,
   MAX_BACKTEST_ROUNDS,
   maxPathsForSample,
+  maxWindowsForSample,
+  robustnessAnalysesQuerySchema,
+  robustnessRequestSchema,
   simulationRunsQuerySchema,
 } from '@aviator/shared';
 import { z } from 'zod';
@@ -18,7 +21,13 @@ import {
   listRuns,
 } from '../../db/repositories/simulations.js';
 import { getAnalysis, listAnalyses } from '../../db/repositories/analyses.js';
+import {
+  deleteRobustnessAnalysis,
+  getRobustnessAnalysis,
+  listRobustnessAnalyses,
+} from '../../db/repositories/robustness.js';
 import { runAndStoreAnalysis } from '../../simulations/analysis.js';
+import { runAndStoreRobustness } from '../../simulations/robustness.js';
 import { runAndStoreBacktest } from '../../simulations/service.js';
 import { HttpError } from '../errors.js';
 
@@ -104,6 +113,53 @@ export function simulationsRouter(
     const analysis = parsed.success ? getAnalysis(db, run.id, parsed.data) : null;
     if (!analysis) throw new HttpError(404, 'analysis_not_found', 'No such analysis for this run.');
     res.json(analysis);
+  });
+
+  // Chronological robustness analyses of a completed run. Virtual money only; the server
+  // computes and verifies every result itself (clients only choose the block count).
+  router.post('/simulations/:id/robustness', (req, res) => {
+    const run = findRun(req.params.id);
+    const request = robustnessRequestSchema.parse(req.body);
+    res.status(201).json(runAndStoreRobustness(db, run, request, { now, maxRounds, log }));
+  });
+
+  router.get('/simulations/:id/robustness', (req, res) => {
+    const query = robustnessAnalysesQuerySchema.parse(req.query);
+    const run = findRun(req.params.id);
+    const sampleSize = run.status === 'completed' ? (run.dataset?.roundsEligible ?? null) : null;
+    res.json({
+      ...listRobustnessAnalyses(db, run, query),
+      limit: query.limit,
+      offset: query.offset,
+      maxWindows: sampleSize === null ? 0 : maxWindowsForSample(sampleSize),
+      sampleSize,
+    });
+  });
+
+  function parseRobustnessId(text: unknown): number | null {
+    const parsed = runIdSchema.safeParse(text);
+    return parsed.success ? parsed.data : null;
+  }
+  const robustnessNotFound = () =>
+    new HttpError(
+      404,
+      'robustness_analysis_not_found',
+      'No such robustness analysis for this run.',
+    );
+
+  router.get('/simulations/:id/robustness/:analysisId', (req, res) => {
+    const run = findRun(req.params.id);
+    const id = parseRobustnessId(req.params.analysisId);
+    const analysis = id === null ? null : getRobustnessAnalysis(db, run, id);
+    if (!analysis) throw robustnessNotFound();
+    res.json(analysis);
+  });
+
+  router.delete('/simulations/:id/robustness/:analysisId', (req, res) => {
+    const run = findRun(req.params.id);
+    const id = parseRobustnessId(req.params.analysisId);
+    if (id === null || !deleteRobustnessAnalysis(db, run.id, id)) throw robustnessNotFound();
+    res.status(204).end();
   });
 
   return router;

@@ -184,6 +184,6 @@ The routes sit behind the same loopback Host guard as the rest of the API.
 
 - The settlement rule (M ≥ T, rounded down) has not been confirmed against the platform's published rules.
 - The replay ignores anything the recorded data cannot show: timing, latency, manual cashouts, platform limits, and whether a cashout would actually have been accepted.
-- A backtest over one historical sequence says nothing about the distribution of outcomes on other sequences. The optional uncertainty analysis ([UNCERTAINTY.md](UNCERTAINTY.md)) resamples the same observations under an IID bootstrap model. It does not add new information, and it does not report confidence intervals.
+- A backtest over one historical sequence says nothing about the distribution of outcomes on other sequences. The optional uncertainty analysis ([UNCERTAINTY.md](UNCERTAINTY.md)) resamples the same observations under an IID bootstrap model. It does not add new information, and it does not report confidence intervals. The optional robustness analysis ([ROBUSTNESS.md](ROBUSTNESS.md)) replays separate chronological periods of the same data; those periods are in-sample, not out-of-sample validation.
 - Selections larger than 100,000 eligible rounds must be narrowed.
 - `limit`, `offset` and `importId` query parameters use the same lenient number parsing as the rest of the API (for example `1e1` is read as 10). Run ids in the path are strict. Making query parsing strict across every endpoint is deferred.

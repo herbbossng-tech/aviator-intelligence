@@ -14,6 +14,8 @@ import {
   overviewResponseSchema,
   roundSourcesResponseSchema,
   roundsListResponseSchema,
+  robustnessAnalysesListSchema,
+  robustnessAnalysisDtoSchema,
   simulationAnalysesListSchema,
   simulationAnalysisDtoSchema,
   simulationRunDtoSchema,
@@ -22,6 +24,7 @@ import {
   type AnalysisSettings,
   type BacktestRequestInput,
   type ImportFormat,
+  type RobustnessOptions,
   type ValidationDetail,
 } from '@aviator/shared';
 
@@ -178,4 +181,8 @@ export const api = {
     getJson(`/api/simulations/${runId}/analyses?limit=50`, simulationAnalysesListSchema, signal),
   runAnalysis: (runId: number, settings: AnalysisSettings) =>
     postJson(`/api/simulations/${runId}/analyses`, simulationAnalysisDtoSchema, settings),
+  robustnessAnalyses: (runId: number, signal?: AbortSignal) =>
+    getJson(`/api/simulations/${runId}/robustness?limit=50`, robustnessAnalysesListSchema, signal),
+  runRobustness: (runId: number, options: RobustnessOptions) =>
+    postJson(`/api/simulations/${runId}/robustness`, robustnessAnalysisDtoSchema, options),
 };
