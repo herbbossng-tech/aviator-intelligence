@@ -166,7 +166,7 @@ function legOrder(strategy: TwoLegStrategyConfig) {
 }
 
 /** Validates inputs that the schemas cannot check on their own. Throws RangeError. */
-function assertReplayableRounds(rounds: readonly BacktestRound[]): void {
+export function assertReplayableRounds(rounds: readonly BacktestRound[]): void {
   if (rounds.length > MAX_BACKTEST_ROUNDS) {
     throw new RangeError(`A backtest replays at most ${MAX_BACKTEST_ROUNDS} rounds`);
   }
