@@ -147,7 +147,7 @@ Aviator Intelligence is a local-first research and simulation dashboard for the 
   - No migration was needed, and flat-stake results are unchanged.
   - See [UNCERTAINTY.md](UNCERTAINTY.md#runs-with-a-staking-progression) and [ROBUSTNESS.md](ROBUSTNESS.md#runs-with-a-staking-progression).
 - **Increment 4 — order-preserving block bootstrap:** a non-circular moving-block bootstrap for the uncertainty analysis, beside the unchanged IID bootstrap. See [BLOCK_BOOTSTRAP_DESIGN.md](BLOCK_BOOTSTRAP_DESIGN.md).
-  - Implemented on `feat/moving-block-bootstrap`:
+  - Implemented and merged into `main` by [PR #11](https://github.com/herbbossng-tech/aviator-intelligence/pull/11) (merge commit `d343038`):
     - the approved design;
     - step 1: sampling primitives in `packages/shared/src/blockBootstrap.ts`;
     - step 2: the shared analysis engine `runBlockBootstrap` in `packages/shared/src/blockBootstrapAnalysis.ts`, which replays every path through the canonical replay loop;
@@ -158,27 +158,26 @@ Aviator Intelligence is a local-first research and simulation dashboard for the 
   - Local validation: 741 tests across 38 files, with `format:check`, `lint`, `typecheck`, `test`, `build`, `check` and `git diff --check` passing.
   - The web suite passed 20 repeated runs. An earlier intermittent web-test failure did not reproduce, but its root cause is unknown and it is not claimed fixed.
   - The real local database was not migrated or reset. Its checksum and modification time were unchanged throughout; all migration and API tests use isolated in-memory databases.
-  - The branch is pushed. [PR #11](https://github.com/herbbossng-tech/aviator-intelligence/pull/11) was opened as a draft against `main`, and GitHub CI passed on its first published head `2a397b5`. This tracker correction is a later commit on the same PR, which must pass CI before merging.
-  - Increment 4 is not merged into, or verified on, `main`.
+  - GitHub CI passed on the PR's first published head `2a397b5` and on its final head `a48f355` (a documentation-only tracker correction). The PR was merged with a merge commit, and CI passed on the resulting `main` commit `d343038`.
 - A progression changes stake sizes only. It does not predict rounds, create an edge or guarantee recovery or profit; all amounts are virtual.
 
 ### Progression tracker
 
-| Increment                                   | Implemented         | Tested                       | Committed | Pushed       | Merged                  | Verified on `main`           |
-| ------------------------------------------- | ------------------- | ---------------------------- | --------- | ------------ | ----------------------- | ---------------------------- |
-| 1 — progression engine                      | Yes                 | Yes                          | Yes       | Yes          | Yes (PR #8, `79e7873`)  | Yes (CI passed on `79e7873`) |
-| 2 — progressions in backtests               | Yes                 | Yes                          | Yes       | Yes          | Yes (PR #9, `82d0644`)  | Yes (CI passed on `82d0644`) |
-| 3 — progression-aware analyses              | Yes                 | Yes                          | Yes       | Yes          | Yes (PR #10, `d8f5d4c`) | Yes (CI passed on `d8f5d4c`) |
-| 4 — block bootstrap: design                 | Complete (approved) | —                            | Yes       | Yes (PR #11) | No                      | No                           |
-| 4 — step 1: sampling primitives             | Yes                 | Yes (CI passed on `2a397b5`) | Yes       | Yes (PR #11) | No                      | No                           |
-| 4 — step 2: shared analysis engine          | Yes                 | Yes (CI passed on `2a397b5`) | Yes       | Yes (PR #11) | No                      | No                           |
-| 4 — step 3: storage and API (migration 007) | Yes                 | Yes (CI passed on `2a397b5`) | Yes       | Yes (PR #11) | No                      | No                           |
-| 4 — step 4: UI                              | Yes                 | Yes (CI passed on `2a397b5`) | Yes       | Yes (PR #11) | No                      | No                           |
-| 4 — step 5: final review                    | Yes                 | Yes (CI passed on `2a397b5`) | Yes       | Yes (PR #11) | No                      | No                           |
+| Increment                                   | Implemented         | Tested                       | Committed | Pushed | Merged                  | Verified on `main`           |
+| ------------------------------------------- | ------------------- | ---------------------------- | --------- | ------ | ----------------------- | ---------------------------- |
+| 1 — progression engine                      | Yes                 | Yes                          | Yes       | Yes    | Yes (PR #8, `79e7873`)  | Yes (CI passed on `79e7873`) |
+| 2 — progressions in backtests               | Yes                 | Yes                          | Yes       | Yes    | Yes (PR #9, `82d0644`)  | Yes (CI passed on `82d0644`) |
+| 3 — progression-aware analyses              | Yes                 | Yes                          | Yes       | Yes    | Yes (PR #10, `d8f5d4c`) | Yes (CI passed on `d8f5d4c`) |
+| 4 — block bootstrap: design                 | Complete (approved) | —                            | Yes       | Yes    | Yes (PR #11, `d343038`) | Yes (CI passed on `d343038`) |
+| 4 — step 1: sampling primitives             | Yes                 | Yes (CI passed on `a48f355`) | Yes       | Yes    | Yes (PR #11, `d343038`) | Yes (CI passed on `d343038`) |
+| 4 — step 2: shared analysis engine          | Yes                 | Yes (CI passed on `a48f355`) | Yes       | Yes    | Yes (PR #11, `d343038`) | Yes (CI passed on `d343038`) |
+| 4 — step 3: storage and API (migration 007) | Yes                 | Yes (CI passed on `a48f355`) | Yes       | Yes    | Yes (PR #11, `d343038`) | Yes (CI passed on `d343038`) |
+| 4 — step 4: UI                              | Yes                 | Yes (CI passed on `a48f355`) | Yes       | Yes    | Yes (PR #11, `d343038`) | Yes (CI passed on `d343038`) |
+| 4 — step 5: final review                    | Yes                 | Yes (CI passed on `a48f355`) | Yes       | Yes    | Yes (PR #11, `d343038`) | Yes (CI passed on `d343038`) |
 
-Increment 4 is in [PR #11](https://github.com/herbbossng-tech/aviator-intelligence/pull/11) against `main`, not yet merged.
+Increment 4 is merged into `main` (PR #11, `d343038`) and verified there by CI.
 
-Next step: CI on the PR's final head, then the owner-authorised merge of PR #11 with a merge commit and post-merge verification on `main`.
+Next step: none is authorised. Any further increment needs the owner's separate approval.
 
 ## Planned for later phases
 
@@ -188,7 +187,7 @@ Each phase needs separate approval.
 - **Analysis:** rolling-window summaries, once a trustworthy within-source ordering is defined; per-source comparisons.
 - **Strategy lab:** save and name two-leg strategies for reuse.
 - **Simulation uncertainty, beyond pass 5:**
-  - an order-preserving (block) bootstrap with a justified block length (progression increment 4, PR #11; see [BLOCK_BOOTSTRAP_DESIGN.md](BLOCK_BOOTSTRAP_DESIGN.md))
+  - an order-preserving (block) bootstrap with a justified block length (delivered as progression increment 4, PR #11; see [BLOCK_BOOTSTRAP_DESIGN.md](BLOCK_BOOTSTRAP_DESIGN.md))
   - interval estimates for model frequencies, with stated assumptions
 - **Testing:** Playwright end-to-end tests of the dashboard itself.
 - **Operations:** a combined production server for the built dashboard; backup/export tooling; an optional PostgreSQL migration path. The data access is already isolated in repository modules.
