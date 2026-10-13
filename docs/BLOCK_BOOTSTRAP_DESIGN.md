@@ -1,6 +1,6 @@
 # Design: order-preserving block bootstrap (progression increment 4)
 
-> **Status: design approved by the owner; implementation in progress.** Only step 1 (the sampling primitives, [§13](#13-implementation-sequence)) exists, locally and unmerged. The analysis itself, its storage, API and UI do not exist yet.
+> **Status: design approved by the owner; implementation in progress.** Steps 1 and 2 ([§13](#13-implementation-sequence)) exist locally and are unmerged: the sampling primitives (`blockBootstrap.ts`) and the shared analysis engine (`blockBootstrapAnalysis.ts`). Storage, the API and the UI do not exist yet.
 >
 > It proposes how to add a second resampling method to the uncertainty analysis. The existing IID bootstrap ([UNCERTAINTY.md](UNCERTAINTY.md)) and the chronological robustness analysis ([ROBUSTNESS.md](ROBUSTNESS.md)) are unchanged by this design and remain supported. The owner's decisions on [§14](#14-decisions-for-the-owner) are recorded there.
 
@@ -123,6 +123,16 @@ Notation: n = sample size, b = block length, S = n − b + 1 candidate starts, K
 
   Invalid samples and block lengths throw `BlockBootstrapError`, a `RangeError` like the IID `AnalysisLimitError`, before anything is drawn. The IID module is not changed.
 
+- **Step 2 implementation.** `runBlockBootstrap(sample, strategy, settings, { paths, seed, blockLength }, observed, staking)` in `packages/shared/src/blockBootstrapAnalysis.ts`.
+  - **Before any path is drawn,** it validates, in this order:
+    - the settings, with a strict schema (ZodError, as for IID);
+    - the sample size and block length (`BlockBootstrapError`);
+    - the work limit (`AnalysisLimitError`);
+    - every multiplier;
+    - the strategy, settings and plan (through `createSummaryReplayer`).
+  - **Each path:** draws its starts with `blockPathGenerator(seed, p)`, maps the positions to multipliers in a reused buffer, and is replayed by the canonical `createSummaryReplayer` with the run's own plan.
+  - **Output:** `blockBootstrapSummarySchema`, the IID summary shape plus `resampling` and `longestLosingStreak`, with the extra warning `few_candidate_blocks`.
+
 ### 5.4 Known edge effect
 
 Under non-circular moving blocks, round i is contained in min(i + 1, b, n − i, S) of the S candidate blocks. Interior rounds are in b blocks; the first and last b − 1 rounds are in fewer.
@@ -182,6 +192,8 @@ The block result reuses the IID summary shape, so the two can be shown side by s
   - stop-reason counts and configured-boundary counts (only for stops the run configured);
   - the observed comparison and the per-leg `staking` block.
 - **Added: longest losing streak distribution.** The longest run of consecutive rounds with a negative round net. This is already computed by `replayCore` for every replay (`longestLosingStreak`), so nothing new is calculated.
+  - A round's net is the sum over both legs, so the streak counts rounds that lost money overall, not one leg's losses.
+  - A break-even round (including a round with no stake) ends a run.
   - It is the figure most directly affected by keeping order, which is why it is added here.
   - It is **not** added to IID results, whose version-1 output stays unchanged. The comparison view shows "not reported" for IID ([§14, decision 4](#14-decisions-for-the-owner)).
 - **Added: `resampling` metadata.** `{ method: "moving_block", blockLength: b, blocksPerPath: K, lastBlockLength: L, candidateStarts: S }`.
@@ -309,13 +321,13 @@ Each test names the defect it is designed to catch. The fixtures are synthetic a
 
 Each increment ends with green repository checks (`format:check`, `lint`, `typecheck`, `test`, `build`, `check`, `git diff --check`) and no change to IID results (frozen v1 tests).
 
-| #   | Increment              | Scope                                                                                                                                                                                                   | Acceptance criteria                                                                                          |
-| --- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| 1   | Sampling primitives    | `packages/shared`: block-length rules and default, domain-separated generator, `fillMovingBlockPath`, constants and errors                                                                              | Tests 1–6 and 11 pass; IID frozen outputs unchanged; no server or UI change                                  |
-| 2   | Block bootstrap engine | `packages/shared`: `runBlockBootstrap` reusing the IID aggregation (refactored behind a shared helper, without changing IID output), streak distribution, resampling metadata, warnings, summary schema | Tests 7–10 pass; IID results byte-identical (frozen tests); progression semantics as in §6                   |
-| 3   | Persistence and API    | Migration 007, repository with read-time validation, service with limit checks, routes and error codes                                                                                                  | Tests 12–15 pass; existing rows untouched; old databases migrate; ordinary invalid input never gives 500     |
-| 4   | UI and documentation   | Method choice, block length, K and L, method text, comparison table, results labels; UNCERTAINTY.md section; tracker                                                                                    | Test 16 passes; copy reviewed against §3 and §9; no claim of prediction or edge                              |
-| 5   | Final review and PR    | Full diff review, repeated test runs, draft PR                                                                                                                                                          | All checks green locally and in CI; PR opened as a draft for the owner; nothing merged without authorisation |
+| #   | Increment              | Scope                                                                                                                                                                                                                                                                                                                                                                                          | Acceptance criteria                                                                                          |
+| --- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 1   | Sampling primitives    | `packages/shared`: block-length rules and default, domain-separated generator, `fillMovingBlockPath`, constants and errors                                                                                                                                                                                                                                                                     | Tests 1–6 and 11 pass; IID frozen outputs unchanged; no server or UI change                                  |
+| 2   | Block bootstrap engine | `packages/shared`: `runBlockBootstrap`, streak distribution, resampling metadata, warnings, summary schema. Implemented without refactoring the IID aggregation (the owner ruled out IID refactoring). `blockBootstrapAnalysis.ts` has its own aggregation, built from the IID module's exported quantile rule, limits, setting schema and summary sub-schemas, so `bootstrap.ts` is unchanged | Tests 7–10 pass; IID results byte-identical (frozen tests); progression semantics as in §6                   |
+| 3   | Persistence and API    | Migration 007, repository with read-time validation, service with limit checks, routes and error codes                                                                                                                                                                                                                                                                                         | Tests 12–15 pass; existing rows untouched; old databases migrate; ordinary invalid input never gives 500     |
+| 4   | UI and documentation   | Method choice, block length, K and L, method text, comparison table, results labels; UNCERTAINTY.md section; tracker                                                                                                                                                                                                                                                                           | Test 16 passes; copy reviewed against §3 and §9; no claim of prediction or edge                              |
+| 5   | Final review and PR    | Full diff review, repeated test runs, draft PR                                                                                                                                                                                                                                                                                                                                                 | All checks green locally and in CI; PR opened as a draft for the owner; nothing merged without authorisation |
 
 ## 14. Decisions for the owner
 

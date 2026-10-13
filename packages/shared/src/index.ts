@@ -9,6 +9,7 @@ export * from './analytics.js';
 export * from './backtest.js';
 export * from './bootstrap.js';
 export * from './blockBootstrap.js';
+export * from './blockBootstrapAnalysis.js';
 export * from './robustness.js';
 export * from './progression.js';
 export * from './staking.js';
