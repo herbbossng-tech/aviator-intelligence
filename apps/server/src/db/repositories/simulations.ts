@@ -6,6 +6,9 @@ import {
   backtestDatasetReportSchema,
   resolvedDatasetSchema,
   legProgressionEntrySchema,
+  LEG_KEYS,
+  progressionConfigKey,
+  stakingPlanIssues,
   stakingPlanSchema,
   type BacktestDataset,
   type BacktestDatasetReport,
@@ -317,7 +320,7 @@ function toRunDto(row: RunRow): SimulationRunDto {
 
 function parseRunRow(row: RunRow): SimulationRunDto {
   const dataset = storedDatasetSchema.parse(JSON.parse(row.dataset_json));
-  return {
+  const run: SimulationRunDto = {
     id: row.id,
     status: row.status === 'completed' ? 'completed' : 'failed',
     createdAt: row.created_at,
@@ -333,6 +336,37 @@ function parseRunRow(row: RunRow): SimulationRunDto {
     staking:
       row.staking_json === null ? null : stakingPlanSchema.parse(JSON.parse(row.staking_json)),
   };
+  checkStakingConsistency(run);
+  return run;
+}
+
+/**
+ * A stored plan must still fit the stored strategy, and a stored summary must describe exactly
+ * the plan's progressions (same legs, modes and configuration keys). Nothing is repaired.
+ */
+function checkStakingConsistency({ staking, strategy, summary }: SimulationRunDto): void {
+  if (staking !== null) {
+    const issue = stakingPlanIssues(staking, strategy)[0];
+    if (issue) throw new Error(`stored staking plan: ${issue.message}`);
+  }
+  if (summary === null) return;
+  const progression = summary.progression;
+  if ((progression === undefined) !== (staking === null)) {
+    throw new Error('the stored summary does not match the stored staking plan');
+  }
+  if (progression === undefined || staking === null) return;
+  for (const key of LEG_KEYS) {
+    const config = staking.legs[key];
+    const leg = progression.legs[key];
+    if (config === null || leg === null) {
+      if (config !== leg)
+        throw new Error(`leg ${key}'s progression summary does not match the plan`);
+      continue;
+    }
+    if (leg.mode !== config.mode || leg.configKey !== progressionConfigKey(config)) {
+      throw new Error(`leg ${key}'s progression summary does not match the plan`);
+    }
+  }
 }
 
 export function listRuns(

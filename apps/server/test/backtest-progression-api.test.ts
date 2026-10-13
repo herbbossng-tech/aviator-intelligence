@@ -386,6 +386,69 @@ describe('stored progression data', () => {
     });
   });
 
+  it('reports a stored plan that contradicts the stored strategy or summary', async () => {
+    seedSeries(db, MULTIPLIERS);
+    const flat = await createRun(request());
+    const prog = await createRun(request(plan()));
+    const rowOf = (id: number) =>
+      db.prepare('SELECT * FROM simulation_runs WHERE id = ?').get(id) as Record<string, unknown>;
+    // A copy of a stored run with some columns replaced, as if written outside the app.
+    const copy = (id: number, replace: Record<string, unknown>) =>
+      Number(
+        db
+          .prepare(
+            `INSERT INTO simulation_runs (strategy_snapshot_json, settings_json, dataset_json,
+               currency, starting_bankroll_minor, status, ending_bankroll_minor, rounds_processed,
+               created_at, started_at, completed_at, summary_json, stop_reason, dataset_sha256,
+               staking_json)
+             VALUES (@strategy_snapshot_json, @settings_json, @dataset_json, @currency,
+               @starting_bankroll_minor, 'completed', @ending_bankroll_minor, @rounds_processed,
+               @created_at, @started_at, @completed_at, @summary_json, @stop_reason,
+               @dataset_sha256, @staking_json)`,
+          )
+          .run({ ...rowOf(id), ...replace }).lastInsertRowid,
+      );
+    const expectUnreadable = async (id: number) => {
+      const res = await fetch(`${server.baseUrl}/api/simulations/${id}`);
+      expect(res.status).toBe(500);
+      expect(apiErrorSchema.parse(await res.json()).error).toMatchObject({
+        code: 'stored_data_invalid',
+        details: { simulationRunId: id },
+      });
+    };
+    const progRow = rowOf(prog.id);
+
+    // An unchanged copy reads back normally.
+    const same = copy(prog.id, {});
+    expect((await fetch(`${server.baseUrl}/api/simulations/${same}`)).status).toBe(200);
+    // A flat run's summary (no progression) under a staking plan.
+    await expectUnreadable(copy(flat.id, { staking_json: progRow.staking_json }));
+    // A progression summary on a run without a plan.
+    await expectUnreadable(copy(prog.id, { staking_json: null }));
+    // A valid plan, but not the one the summary describes (different configuration key).
+    await expectUnreadable(
+      copy(prog.id, {
+        staking_json: JSON.stringify(plan(martingale(), null)).replace(
+          '"multiplierX100":200',
+          '"multiplierX100":300',
+        ),
+      }),
+    );
+    // The summary reports leg B as flat, but the plan gives it a progression.
+    const legB = { ...martingale(), baseStakeMinor: 50_000 };
+    await expectUnreadable(
+      copy(prog.id, { staking_json: JSON.stringify(plan(martingale(), legB)) }),
+    );
+    // A plan that no longer fits the stored strategy (base stake differs from the leg stake).
+    const strategy = JSON.parse(String(progRow.strategy_snapshot_json)) as {
+      legs: { A: { stakeMinor: number } };
+    };
+    strategy.legs.A.stakeMinor = 60_000;
+    await expectUnreadable(copy(prog.id, { strategy_snapshot_json: JSON.stringify(strategy) }));
+    // The list endpoint refuses the same way rather than showing a contradictory run.
+    expect((await fetch(`${server.baseUrl}/api/simulations?limit=100`)).status).toBe(500);
+  });
+
   it('reports a malformed stored staking plan as a server-side error', async () => {
     seedSeries(db, MULTIPLIERS);
     const run = await createRun(request(plan()));
